@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Acquire — Keithley 2602</title>
+  <link rel="stylesheet" href="/static/style.css">
+  </head>
+<body>
+  <main>
+    <h1>Acquire — Keithley 2602</h1>
+    <section>
+      <p>Status: <strong id="status">checking...</strong></p>
+      <p>IDN: <span id="idn">-</span></p>
+      <div style="margin-top:8px">
+        <button id="open">Open Connection</button>
+        <button id="close">Close Connection</button>
+        <button id="refresh">Refresh Status</button>
+      </div>
+      <div id="result" style="margin-top:8px"></div>
+    </section>
+  </main>
+  <script src="/static/acquire.js"></script>
+</body>
+</html>

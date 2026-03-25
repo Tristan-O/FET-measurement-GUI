@@ -1,25 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const statusEl = document.getElementById('status');
-  const idnEl = document.getElementById('idn');
-  const refreshBtn = document.getElementById('refresh-status');
   const uploadForm = document.getElementById('upload-form');
   const uploadResult = document.getElementById('upload-result');
   const dataMeta = document.getElementById('data-meta');
   const tableWrap = document.getElementById('table-wrap');
-
-  async function fetchStatus() {
-    statusEl.textContent = 'checking...';
-    idnEl.textContent = '-';
-    try {
-      const r = await fetch('/api/status');
-      const j = await r.json();
-      statusEl.textContent = j.status || '-';
-      idnEl.textContent = j.idn || '-';
-    } catch (e) {
-      statusEl.textContent = 'error';
-      idnEl.textContent = '-';
-    }
-  }
 
   async function fetchDataAndRender() {
     tableWrap.innerHTML = '';
@@ -142,8 +125,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  refreshBtn.addEventListener('click', fetchStatus);
-
   uploadForm.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     uploadResult.textContent = 'Uploading...';
@@ -168,7 +149,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // initial load
-  fetchStatus();
   fetchDataAndRender();
 });

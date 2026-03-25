@@ -33,7 +33,6 @@ class InstrumentState:
 
 
 state = InstrumentState()
-# load_state_from_disk()
 
 
 def open_instrument(address=None, timeout=5):
@@ -96,11 +95,28 @@ def index():
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    # Attempt a quick connection check on demand
-    if state.status != "opened":
-        address = os.environ.get("KEITHLEY_ADDRESS")
-        open_instrument(address=address)
     return jsonify({"status": state.status, "idn": state.idn})
+
+
+@app.route("/api/open", methods=["POST"])
+def api_open():
+    open_instrument()
+    return jsonify({"status": state.status, "idn": state.idn})
+
+
+@app.route("/api/close", methods=["POST"])
+def api_close():
+    try:
+        if state.inst is not None:
+            try:
+                state.inst.close()
+            except Exception:
+                pass
+            state.inst = None
+        state.status = "closed"
+        return jsonify({"ok": True, "status": state.status})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def parse_csv_text(text):
@@ -265,6 +281,11 @@ def plot_page():
     return render_template("plot.html")
 
 
+@app.route("/acquire")
+def acquire_page():
+    return render_template("acquire.html")
+
+
 @app.route("/api/rename", methods=["POST"])
 def api_rename():
     j = request.get_json() or {}
@@ -309,9 +330,7 @@ def start_connection_background():
     address = os.environ.get("KEITHLEY_ADDRESS")
     open_instrument(address=address)
 
-
 if __name__ == "__main__":
-    t = threading.Thread(target=start_connection_background, daemon=True)
-    t.start()
+    load_state_from_disk()
     app.run(host="0.0.0.0", port=5000, debug=True)
 
