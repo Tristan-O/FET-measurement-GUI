@@ -4,9 +4,10 @@ import threading
 import io
 import csv
 import math
+import time
 from datetime import datetime
 import json
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 try:
     import pyvisa
 except Exception:
@@ -285,6 +286,28 @@ def api_upload():
                         "headers": [c["name"] for c in upload["columns"]]}})
 
 
+@app.route('/stream')
+def stream():
+    def gen():
+        t0 = time.time()
+        while True:
+            payload = {'ts': time.time()-t0, 'data': {'a':{}, 'b':{}}}
+            if state.inst is not None:
+                for k in ('a', 'b'):
+                    for m in ('i','v'):
+                        try:
+                            payload['data'][k][m] = float(state.inst.query(f'print(smu{k}.measure.{m}())').strip())
+                            print(k,m,payload['data'][k][m])
+                        except Exception:
+                            payload['data'][k][m] = None
+            else:
+                payload['error'] = 'no instrument'
+
+            yield f"data: {json.dumps(payload)}\n\n"
+            time.sleep(0.5)
+    return Response(stream_with_context(gen()), mimetype='text/event-stream')
+
+
 @app.route("/api/data", methods=["GET"])
 def api_data():
     # Return summary of current uploads (filenames and header names)
@@ -371,9 +394,9 @@ def api_smu(which):
     # If instrument is open, attempt to apply these settings to the device
     try:
         apply_smu_to_instrument(key)
-    except Exception:
+    except Exception as e:
         # don't fail the request if instrument commands error
-        pass
+        print(f'Tried to apply settings to SMU{key}, but got', e)
     return jsonify({'ok': True, 'smu': state.smus.get(key)})
 
 
@@ -459,71 +482,57 @@ def apply_smu_to_instrument(which):
 
     # Try TSP-style commands first
     try:
+        def write(cmd):
+            print(cmd)
+            inst.write(cmd)
+            # print(inst.query('errorqueue.next()').strip())
+
         # source function
         if smu.get('source') == 'voltage':
-            inst.write(f"{prefix}.source.func = {prefix}.OUTPUT_DCVOLTS")
+            write(f"{prefix}.source.func = {prefix}.OUTPUT_DCVOLTS")
             # set level to 0 by default; do not drive output value automatically
-            inst.write(f"{prefix}.source.levelv = 0")
-            inst.write(f'display.{prefix}.measure.func = display.MEASURE_DCAMPS')
+            write(f"{prefix}.source.levelv = 0")
+            write(f'display.{prefix}.measure.func = display.MEASURE_DCAMPS')
         else:
-            inst.write(f"{prefix}.source.func = {prefix}.OUTPUT_DCCURRENT")
-            inst.write(f"{prefix}.source.leveli = 0")
-            inst.write(f'display.{prefix}.measure.func = display.MEASURE_DCVOLTS')
+            write(f"{prefix}.source.func = {prefix}.OUTPUT_DCCURRENT")
+            write(f"{prefix}.source.leveli = 0")
+            write(f'display.{prefix}.measure.func = display.MEASURE_DCVOLTS')
 
         # nplc
         if 'nplc' in smu:
-            inst.write(f"{prefix}.measure.nplc = {int(smu.get('nplc',1))}")
+            write(f"{prefix}.measure.nplc = {int(smu.get('nplc',1))}")
 
         # ranges and limits
         vr = _parse_range_value(smu.get('src_voltage_range'))
         if vr is not None:
-            inst.write(f"{prefix}.source.rangev = {vr}")
+            write(f"{prefix}.source.rangev = {vr:.6e}")
         cr = _parse_range_value(smu.get('src_current_range'))
         if cr is not None:
-            inst.write(f"{prefix}.source.rangei = {cr}")
+            write(f"{prefix}.source.rangei = {cr:.6e}")
 
         if 'src_voltage_limit' in smu:
-            inst.write(f"{prefix}.source.limitv = {float(smu.get('src_voltage_limit',0))}")
+            write(f"{prefix}.source.limitv = {float(smu.get('src_voltage_limit',0)):.6e}")
         if 'src_current_limit' in smu:
-            inst.write(f"{prefix}.source.limiti = {float(smu.get('src_current_limit',0))}")
+            write(f"{prefix}.source.limiti = {float(smu.get('src_current_limit',0)):.6e}")
 
         mvr = _parse_range_value(smu.get('meas_voltage_range'))
         if mvr is not None:
-            inst.write(f"{prefix}.measure.rangev = {mvr}")
+            write(f"{prefix}.measure.rangev = {mvr:.6e}")
         mcr = _parse_range_value(smu.get('meas_current_range'))
         if mcr is not None:
-            inst.write(f"{prefix}.measure.rangei = {mcr}")
+            write(f"{prefix}.measure.rangei = {mcr:.6e}")
 
         # output on/off
         if smu.get('output'):
-            inst.write(f"{prefix}.source.output = {prefix}.OUTPUT_ON")
+            write(f"{prefix}.source.output = {prefix}.OUTPUT_ON")
         else:
-            inst.write(f"{prefix}.source.output = {prefix}.OUTPUT_OFF")
+            write(f"{prefix}.source.output = {prefix}.OUTPUT_OFF")
 
-        return
-    except Exception:
+        return True
+    except Exception as e:
         # fall through to SCPI-style attempts
-        pass
-
-    # Fallback: try SCPI-like commands (may or may not be supported)
-    try:
-        n = '1' if key == 'A' else '2'
-        if smu.get('source') == 'voltage':
-            inst.write(f":SOUR{n}:FUNC VOLT")
-            inst.write(f":SOUR{n}:VOLT 0")
-        else:
-            inst.write(f":SOUR{n}:FUNC CURR")
-            inst.write(f":SOUR{n}:CURR 0")
-
-        if 'nplc' in smu:
-            inst.write(f":SENS{n}:NPLC {int(smu.get('nplc',1))}")
-
-        if smu.get('output'):
-            inst.write(f":OUTP{n} ON")
-        else:
-            inst.write(f":OUTP{n} OFF")
-    except Exception:
-        pass
+        print('While trying to write to instrument, got exception', e)
+        return False
 
 
 def save_state_to_disk():

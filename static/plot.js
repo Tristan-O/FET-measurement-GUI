@@ -1,5 +1,7 @@
 let DATASETS = []; // {key, upload_id, filename, name, array}
 let plotCount = 0;
+let streamSource = null;
+let liveData = { smua_v: [], smua_i: [], smub_v: [], smub_i: [], ts: [] };
 
 async function fetchFull() {
   const r = await fetch('/api/full');
@@ -117,11 +119,54 @@ function addPlot() {
   updatePlot();
 }
 
+function startStream() {
+  if (streamSource) return;
+  streamSource = new EventSource('/stream');
+  streamSource.onmessage = (ev) => {
+    try {
+      const j = JSON.parse(ev.data);
+      if (j.error) return;
+      const ts = j.ts || Date.now()/1000;
+      liveData.ts.push(ts);
+      // assume j.data.A and j.data.B are arrays [v,i] or similar
+      const a = j.data && j.data.a ? j.data.a : [];
+      const b = j.data && j.data.b ? j.data.b : [];
+      liveData.smua_v.push(a.v ?? null);
+      liveData.smua_i.push(a.i ?? null);
+      liveData.smub_v.push(b.v ?? null);
+      liveData.smub_i.push(b.i ?? null);
+      // limit length
+      const maxLen = 500;
+      Object.keys(liveData).forEach(k=>{ if (liveData[k].length>maxLen) liveData[k].shift(); });
+      // update plot
+      Plotly.react('live-plot', [
+        { x: liveData.ts, y: liveData.smua_v, name: 'SMUA V' },
+        { x: liveData.ts, y: liveData.smua_i, name: 'SMUA I' },
+        { x: liveData.ts, y: liveData.smub_v, name: 'SMUB V' },
+        { x: liveData.ts, y: liveData.smub_i, name: 'SMUB I' }
+      ], { margin:{t:30}, xaxis:{title:'time'} });
+    } catch (e) {
+      console.error('stream parse', e);
+    }
+  };
+  streamSource.onerror = (e) => { console.error('SSE error', e); };
+}
+
+function stopStream() {
+  if (!streamSource) return;
+  streamSource.close();
+  streamSource = null;
+}
+
 async function init() {
   await fetchFull();
   // Add first plot
   addPlot();
   document.getElementById('add-plot').addEventListener('click', addPlot);
+  const btn = document.getElementById('stream-toggle');
+  btn.addEventListener('click', ()=>{
+    if (!streamSource) { startStream(); btn.textContent='Stop Stream'; } else { stopStream(); btn.textContent='Start Stream'; }
+  });
 }
 
 window.addEventListener('DOMContentLoaded', init);
