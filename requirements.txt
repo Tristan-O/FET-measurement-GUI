@@ -1,3 +1,4 @@
 Flask>=2.0
 pyvisa>=1.11
 pyvisa-py>=0.5  # optional backend if NI-VISA isn't available
+pandas>=1.5

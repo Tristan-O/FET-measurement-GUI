@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Acquire — Keithley 2602</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.plot.ly/plotly-2.18.2.min.js"></script>
   </head>
 <body>
   <main>
@@ -49,6 +50,11 @@
           <label>Measure Current Range: <select id="smub-meas-current-range"></select></label>
         </div>
       </div>
+    </section>
+    <section>
+      <h2>Live Stream</h2>
+      <button id="stream-toggle">Start Stream</button>
+      <div id="live-plot" style="height:360px; margin-top:8px;"></div>
     </section>
   </main>
   <script src="/static/acquire.js"></script>

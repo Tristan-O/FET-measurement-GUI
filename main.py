@@ -5,6 +5,7 @@ import io
 import csv
 import math
 import time
+import pandas as pd
 from datetime import datetime
 import json
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context
@@ -291,17 +292,42 @@ def stream():
     def gen():
         t0 = time.time()
         while True:
-            payload = {'ts': time.time()-t0, 'data': {'a':{}, 'b':{}}}
+            payload = {'ts': time.time() - t0, 'data': {'a': {'v': None, 'i': None}, 'b': {'v': None, 'i': None}}}
+            a_v = a_i = b_v = b_i = None
             if state.inst is not None:
+                # Only poll SMUs that have their output ON
                 for k in ('a', 'b'):
-                    for m in ('i','v'):
-                        try:
-                            payload['data'][k][m] = float(state.inst.query(f'print(smu{k}.measure.{m}())').strip())
-                            print(k,m,payload['data'][k][m])
-                        except Exception:
-                            payload['data'][k][m] = None
+                    smu_key = k.upper()
+                    smu_cfg = state.smus.get(smu_key, {})
+                    if not smu_cfg.get('output'):
+                        # leave values as None when output is off
+                        payload['data'][k]['v'] = None
+                        payload['data'][k]['i'] = None
+                        continue
+                    # instrument-specific query; TSP-style measure calls
+                    try:
+                        v = state.inst.query(f'print(smu{smu_key.lower()}.measure.v())').strip()
+                        i = state.inst.query(f'print(smu{smu_key.lower()}.measure.i())').strip()
+                        payload['data'][k]['v'] = float(v)
+                        payload['data'][k]['i'] = float(i)
+                    except Exception:
+                        # if any read fails, set None for that channel
+                        payload['data'][k]['v'] = None
+                        payload['data'][k]['i'] = None
+                # extract for storage convenience
+                a_v = payload['data']['a'].get('v')
+                a_i = payload['data']['a'].get('i')
+                b_v = payload['data']['b'].get('v')
+                b_i = payload['data']['b'].get('i')
             else:
                 payload['error'] = 'no instrument'
+
+            # Append the sampled row to the in-memory DataFrame
+            try:
+                state.stream_df.loc[len(state.stream_df)] = [payload['ts'], a_v, a_i, b_v, b_i]
+            except Exception:
+                # be defensive: if append fails, continue without crashing the generator
+                pass
 
             yield f"data: {json.dumps(payload)}\n\n"
             time.sleep(0.5)
