@@ -1,0 +1,38 @@
+body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    padding: 24px;
+    color: #111 
+}
+main {
+    max-width: 980px;
+    margin: 0 auto 
+}
+h1 {
+    margin-bottom: 8px 
+}
+section {
+    border: 1px solid #e6e6e6;
+    padding: 12px;
+    margin: 12px 0;
+    border-radius: 6px 
+}
+#table-wrap {
+    overflow:auto;
+    max-height: 400px 
+}
+table {
+    border-collapse: collapse;
+    width: 100% 
+}
+th, td {
+    border: 1px solid #ddd;
+    padding: 6px;
+    text-align: right 
+}
+th {
+    background: #f7f7f7;
+    text-align: left 
+}
+#upload-result {
+    margin-top: 8px 
+}

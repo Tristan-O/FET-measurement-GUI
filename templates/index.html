@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Keithley 2602 — Status & Upload</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <h1>TPO Plotting GUI</h1>
+    <section id="status-section">
+      <h2>Keithley 2602</h2>
+      <p><bold>Status:</bold> <span id="status">checking...</span></p>
+      <p><bold>IDN query:</bold> <span id="idn">-</span></p>
+      <button id="refresh-status">Refresh status</button>
+    </section>
+
+    <section id="upload-section">
+      <h2>Upload CSV</h2>
+      <form id="upload-form">
+        <input type="file" id="file-input" name="file" accept=".csv,text/csv" />
+        <button type="submit">Load</button>
+      </form>
+      <div id="upload-result"></div>
+    </section>
+
+    <section id="data-section">
+      <h2>Loaded Data</h2>
+      <div id="data-meta"></div>
+      <div id="table-wrap"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
