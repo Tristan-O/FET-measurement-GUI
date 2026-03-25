@@ -8,8 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const result = document.getElementById('result');
   // SMU controls
   const smuDefs = {
-    voltageRanges: ["±20V","±10V","±2V","±1V","±0.1V"],
-    currentRanges: ["±1A","±100mA","±10mA","±1mA","±100uA"],
+    // Allowed Keithley 2602 ranges
+    voltageRanges: ["±100mV","±1V","±6V","±40V"],
+    currentRanges: ["±100nA","±1uA","±10uA","±100uA","±1mA","±10mA","±100mA","±1A"],
     nplcs: Array.from({length:10},(_,i)=>i+1)
   };
 
@@ -37,7 +38,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const smu = j.smu || {};
     // populate fields
     const prefix = `smu${which.toLowerCase()}`;
-    const set = (id, val) => { const el = document.getElementById(id); if (!el) return; if (el.type === 'checkbox') { el.checked = !!val; } else el.value = val; };
+    const set = (id, val) => {
+      const el = document.getElementById(id); if (!el) return;
+      if (el.type === 'checkbox') { el.checked = !!val; return; }
+      // If it's a select, ensure the value exists in options; otherwise pick first option
+      if (el.tagName === 'SELECT') {
+        const has = Array.from(el.options).some(o => o.value == val);
+        if (has) el.value = val; else if (el.options.length > 0) el.value = el.options[0].value;
+        return;
+      }
+      el.value = val;
+    };
     set(`${prefix}-output`, smu.output ?? false);
     set(`${prefix}-nplc`, smu.nplc ?? 1);
     set(`${prefix}-source`, smu.source ?? 'voltage');

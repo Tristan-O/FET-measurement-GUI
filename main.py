@@ -14,6 +14,10 @@ except Exception:
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
+# Keithley 2602 allowed ranges
+KEITHLEY_VOLT_RANGES = ["±100mV", "±1V", "±6V", "±40V"]
+KEITHLEY_CURR_RANGES = ["±100nA", "±1uA", "±10uA", "±100uA", "±1mA", "±10mA", "±100mA", "±1A"]
+
 
 # Shared state for instrument connection and uploads
 class InstrumentState:
@@ -31,23 +35,23 @@ class InstrumentState:
                 "output": False,
                 "nplc": 1,
                 "source": "voltage",
-                "src_voltage_range": "±20V",
+                "src_voltage_range": "±100mV",
                 "src_voltage_limit": 0.0,
-                "src_current_range": "±1A",
+                "src_current_range": "±100nA",
                 "src_current_limit": 0.0,
-                "meas_voltage_range": "±20V",
-                "meas_current_range": "±1A"
+                "meas_voltage_range": "±100mV",
+                "meas_current_range": "±100nA"
             },
             "B": {
                 "output": False,
                 "nplc": 1,
                 "source": "voltage",
-                "src_voltage_range": "±20V",
+                "src_voltage_range": "±100mV",
                 "src_voltage_limit": 0.0,
-                "src_current_range": "±1A",
+                "src_current_range": "±100nA",
                 "src_current_limit": 0.0,
-                "meas_voltage_range": "±20V",
-                "meas_current_range": "±1A"
+                "meas_voltage_range": "±100mV",
+                "meas_current_range": "±100nA"
             }
         }
 
@@ -353,11 +357,173 @@ def api_smu(which):
         if k in allowed:
             state.smus[key][k] = v
 
+    # Normalize ranges to Keithley-allowed values before saving
+    smu = state.smus[key]
+    smu['src_voltage_range'] = normalize_range_string(smu.get('src_voltage_range'), KEITHLEY_VOLT_RANGES)
+    smu['meas_voltage_range'] = normalize_range_string(smu.get('meas_voltage_range'), KEITHLEY_VOLT_RANGES)
+    smu['src_current_range'] = normalize_range_string(smu.get('src_current_range'), KEITHLEY_CURR_RANGES)
+    smu['meas_current_range'] = normalize_range_string(smu.get('meas_current_range'), KEITHLEY_CURR_RANGES)
+
     try:
         save_state_to_disk()
     except Exception:
         pass
+    # If instrument is open, attempt to apply these settings to the device
+    try:
+        apply_smu_to_instrument(key)
+    except Exception:
+        # don't fail the request if instrument commands error
+        pass
     return jsonify({'ok': True, 'smu': state.smus.get(key)})
+
+
+def _parse_range_value(r):
+    if not r:
+        return None
+    s = str(r).replace('\u00b1', '').replace('±', '').replace('+/-', '').strip()
+    # remove unit letters
+    s_unit = s
+    # strip trailing V or A
+    if s_unit.endswith('V') or s_unit.endswith('A'):
+        s_unit = s_unit[:-1]
+    s_unit = s_unit.strip()
+
+    # detect SI suffixes: n (nano), u (micro), m (milli)
+    mul = 1.0
+    if s_unit.endswith('n'):
+        mul = 1e-9
+        s_num = s_unit[:-1]
+    elif s_unit.endswith('u'):
+        mul = 1e-6
+        s_num = s_unit[:-1]
+    elif s_unit.endswith('m'):
+        mul = 1e-3
+        s_num = s_unit[:-1]
+    else:
+        s_num = s_unit
+
+    try:
+        val = float(s_num)
+        return val * mul
+    except Exception:
+        return None
+
+
+def normalize_range_string(val, allowed_list, default=None):
+    """Return the closest allowed range string from allowed_list based on numeric magnitude.
+
+    If val is None or cannot be parsed, return default or the first allowed item.
+    """
+    if default is None:
+        default = allowed_list[0] if allowed_list else None
+    if not val:
+        return default
+    if val in allowed_list:
+        return val
+    num = _parse_range_value(val)
+    if num is None:
+        return default
+    # compute numeric magnitudes for allowed_list
+    magnitudes = []
+    for a in allowed_list:
+        v = _parse_range_value(a)
+        if v is None:
+            magnitudes.append(float('inf'))
+        else:
+            magnitudes.append(abs(v))
+    # choose allowed entry with closest magnitude to num
+    target = abs(num)
+    best_idx = 0
+    best_diff = abs(magnitudes[0] - target)
+    for i in range(1, len(magnitudes)):
+        d = abs(magnitudes[i] - target)
+        if d < best_diff:
+            best_diff = d
+            best_idx = i
+    return allowed_list[best_idx]
+
+
+def apply_smu_to_instrument(which):
+    """Attempt to apply SMU settings to the connected instrument using TSP or SCPI.
+
+    This function is best-effort and will swallow errors so the web UI stays responsive.
+    """
+    if state.inst is None:
+        return
+    key = which.upper()
+    if key not in ('A', 'B'):
+        return
+    prefix = f'smu{key.lower()}'
+    smu = state.smus.get(key, {})
+    inst = state.inst
+
+    # Try TSP-style commands first
+    try:
+        # source function
+        if smu.get('source') == 'voltage':
+            inst.write(f"{prefix}.source.func = {prefix}.OUTPUT_DCVOLTS")
+            # set level to 0 by default; do not drive output value automatically
+            inst.write(f"{prefix}.source.levelv = 0")
+            inst.write(f'display.{prefix}.measure.func = display.MEASURE_DCAMPS')
+        else:
+            inst.write(f"{prefix}.source.func = {prefix}.OUTPUT_DCCURRENT")
+            inst.write(f"{prefix}.source.leveli = 0")
+            inst.write(f'display.{prefix}.measure.func = display.MEASURE_DCVOLTS')
+
+        # nplc
+        if 'nplc' in smu:
+            inst.write(f"{prefix}.measure.nplc = {int(smu.get('nplc',1))}")
+
+        # ranges and limits
+        vr = _parse_range_value(smu.get('src_voltage_range'))
+        if vr is not None:
+            inst.write(f"{prefix}.source.rangev = {vr}")
+        cr = _parse_range_value(smu.get('src_current_range'))
+        if cr is not None:
+            inst.write(f"{prefix}.source.rangei = {cr}")
+
+        if 'src_voltage_limit' in smu:
+            inst.write(f"{prefix}.source.limitv = {float(smu.get('src_voltage_limit',0))}")
+        if 'src_current_limit' in smu:
+            inst.write(f"{prefix}.source.limiti = {float(smu.get('src_current_limit',0))}")
+
+        mvr = _parse_range_value(smu.get('meas_voltage_range'))
+        if mvr is not None:
+            inst.write(f"{prefix}.measure.rangev = {mvr}")
+        mcr = _parse_range_value(smu.get('meas_current_range'))
+        if mcr is not None:
+            inst.write(f"{prefix}.measure.rangei = {mcr}")
+
+        # output on/off
+        if smu.get('output'):
+            inst.write(f"{prefix}.source.output = {prefix}.OUTPUT_ON")
+        else:
+            inst.write(f"{prefix}.source.output = {prefix}.OUTPUT_OFF")
+
+        return
+    except Exception:
+        # fall through to SCPI-style attempts
+        pass
+
+    # Fallback: try SCPI-like commands (may or may not be supported)
+    try:
+        n = '1' if key == 'A' else '2'
+        if smu.get('source') == 'voltage':
+            inst.write(f":SOUR{n}:FUNC VOLT")
+            inst.write(f":SOUR{n}:VOLT 0")
+        else:
+            inst.write(f":SOUR{n}:FUNC CURR")
+            inst.write(f":SOUR{n}:CURR 0")
+
+        if 'nplc' in smu:
+            inst.write(f":SENS{n}:NPLC {int(smu.get('nplc',1))}")
+
+        if smu.get('output'):
+            inst.write(f":OUTP{n} ON")
+        else:
+            inst.write(f":OUTP{n} OFF")
+    except Exception:
+        pass
 
 
 def save_state_to_disk():
@@ -376,6 +542,14 @@ def load_state_from_disk():
     state.uploads = data.get("uploads", [])
     state._next_upload_id = data.get("next_upload_id", state._next_upload_id)
     state.smus = data.get("smus", state.smus)
+    # Normalize any stored ranges to allowed Keithley values
+    for k in ('A', 'B'):
+        smu = state.smus.get(k, {})
+        smu['src_voltage_range'] = normalize_range_string(smu.get('src_voltage_range'), KEITHLEY_VOLT_RANGES)
+        smu['meas_voltage_range'] = normalize_range_string(smu.get('meas_voltage_range'), KEITHLEY_VOLT_RANGES)
+        smu['src_current_range'] = normalize_range_string(smu.get('src_current_range'), KEITHLEY_CURR_RANGES)
+        smu['meas_current_range'] = normalize_range_string(smu.get('meas_current_range'), KEITHLEY_CURR_RANGES)
+        state.smus[k] = smu
 
 
 def start_connection_background():
