@@ -6,6 +6,82 @@ document.addEventListener('DOMContentLoaded', () => {
   const refreshBtn = document.getElementById('refresh');
 //   const addrInput = document.getElementById('address');
   const result = document.getElementById('result');
+  // SMU controls
+  const smuDefs = {
+    voltageRanges: ["±20V","±10V","±2V","±1V","±0.1V"],
+    currentRanges: ["±1A","±100mA","±10mA","±1mA","±100uA"],
+    nplcs: Array.from({length:10},(_,i)=>i+1)
+  };
+
+  function populateSelect(id, options) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = '';
+    options.forEach(o=>{
+      const opt = document.createElement('option'); opt.value = o; opt.textContent = o; el.appendChild(opt);
+    });
+  }
+
+  // populate options
+  ['A','B'].forEach(s=>{
+    populateSelect(`smu${s.toLowerCase()}-nplc`, smuDefs.nplcs);
+    populateSelect(`smu${s.toLowerCase()}-src-voltage-range`, smuDefs.voltageRanges);
+    populateSelect(`smu${s.toLowerCase()}-src-current-range`, smuDefs.currentRanges);
+    populateSelect(`smu${s.toLowerCase()}-meas-voltage-range`, smuDefs.voltageRanges);
+    populateSelect(`smu${s.toLowerCase()}-meas-current-range`, smuDefs.currentRanges);
+  });
+
+  async function fetchSMU(which) {
+    const r = await fetch(`/api/smu/${which}`);
+    const j = await r.json();
+    const smu = j.smu || {};
+    // populate fields
+    const prefix = `smu${which.toLowerCase()}`;
+    const set = (id, val) => { const el = document.getElementById(id); if (!el) return; if (el.type === 'checkbox') { el.checked = !!val; } else el.value = val; };
+    set(`${prefix}-output`, smu.output ?? false);
+    set(`${prefix}-nplc`, smu.nplc ?? 1);
+    set(`${prefix}-source`, smu.source ?? 'voltage');
+    set(`${prefix}-src-voltage-range`, smu.src_voltage_range ?? smuDefs.voltageRanges[0]);
+    set(`${prefix}-src-voltage-limit`, smu.src_voltage_limit ?? 0);
+    set(`${prefix}-src-current-range`, smu.src_current_range ?? smuDefs.currentRanges[0]);
+    set(`${prefix}-src-current-limit`, smu.src_current_limit ?? 0);
+    set(`${prefix}-meas-voltage-range`, smu.meas_voltage_range ?? smuDefs.voltageRanges[0]);
+    set(`${prefix}-meas-current-range`, smu.meas_current_range ?? smuDefs.currentRanges[0]);
+  }
+
+  async function updateSMU(which, data) {
+    const r = await fetch(`/api/smu/${which}`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    const j = await r.json();
+    return j;
+  }
+
+  // wire change listeners
+  function wireSMU(which) {
+    const prefix = `smu${which.toLowerCase()}`;
+    const fields = ['output','nplc','source','src-voltage-range','src-voltage-limit','src-current-range','src-current-limit','meas-voltage-range','meas-current-range'];
+    fields.forEach(f=>{
+      const id = `${prefix}-${f}`;
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', async ()=>{
+        // prepare payload mapping IDs to server fields
+        const payload = {};
+        payload['output'] = document.getElementById(`${prefix}-output`).checked;
+        payload['nplc'] = parseInt(document.getElementById(`${prefix}-nplc`).value,10);
+        payload['source'] = document.getElementById(`${prefix}-source`).value;
+        payload['src_voltage_range'] = document.getElementById(`${prefix}-src-voltage-range`).value;
+        payload['src_voltage_limit'] = parseFloat(document.getElementById(`${prefix}-src-voltage-limit`).value || 0);
+        payload['src_current_range'] = document.getElementById(`${prefix}-src-current-range`).value;
+        payload['src_current_limit'] = parseFloat(document.getElementById(`${prefix}-src-current-limit`).value || 0);
+        payload['meas_voltage_range'] = document.getElementById(`${prefix}-meas-voltage-range`).value;
+        payload['meas_current_range'] = document.getElementById(`${prefix}-meas-current-range`).value;
+        await updateSMU(which, payload);
+      });
+    });
+
+    // nothing special for checkbox
+  }
+
 
   async function fetchStatus() {
     try {
@@ -58,4 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // initial
   fetchStatus();
+  // fetch and wire SMUs
+  fetchSMU('A').then(()=>wireSMU('A'));
+  fetchSMU('B').then(()=>wireSMU('B'));
 });

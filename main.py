@@ -25,6 +25,31 @@ class InstrumentState:
         self.upload = None
         self.uploads = []
         self._next_upload_id = 1
+        # SMU configs for A and B
+        self.smus = {
+            "A": {
+                "output": False,
+                "nplc": 1,
+                "source": "voltage",
+                "src_voltage_range": "±20V",
+                "src_voltage_limit": 0.0,
+                "src_current_range": "±1A",
+                "src_current_limit": 0.0,
+                "meas_voltage_range": "±20V",
+                "meas_current_range": "±1A"
+            },
+            "B": {
+                "output": False,
+                "nplc": 1,
+                "source": "voltage",
+                "src_voltage_range": "±20V",
+                "src_voltage_limit": 0.0,
+                "src_current_range": "±1A",
+                "src_current_limit": 0.0,
+                "meas_voltage_range": "±20V",
+                "meas_current_range": "±1A"
+            }
+        }
 
     def new_upload_id(self):
         uid = self._next_upload_id
@@ -309,8 +334,34 @@ def api_rename():
     return jsonify({"error": "upload not found"}), 404
 
 
+@app.route('/api/smu/<which>', methods=['GET', 'POST'])
+def api_smu(which):
+    # accept 'A' or 'B' or 'smua'/'smub'
+    key = which.upper()
+    if key.startswith('SMU'):
+        key = key[-1]
+    if key not in ('A', 'B'):
+        return jsonify({'error': 'unknown SMU'}), 404
+
+    if request.method == 'GET':
+        return jsonify({'smu': state.smus.get(key)})
+
+    data = request.get_json() or {}
+    # update allowed fields
+    allowed = {'output', 'nplc', 'source', 'src_voltage_range', 'src_voltage_limit', 'src_current_range', 'src_current_limit', 'meas_voltage_range', 'meas_current_range'}
+    for k, v in data.items():
+        if k in allowed:
+            state.smus[key][k] = v
+
+    try:
+        save_state_to_disk()
+    except Exception:
+        pass
+    return jsonify({'ok': True, 'smu': state.smus.get(key)})
+
+
 def save_state_to_disk():
-    data = {"uploads": state.uploads, "next_upload_id": state._next_upload_id}
+    data = {"uploads": state.uploads, "next_upload_id": state._next_upload_id, "smus": state.smus}
     p = os.path.join(os.path.dirname(__file__), "data_store.json")
     with open(p, "w", encoding="utf-8") as fo:
         json.dump(data, fo, indent=2)
@@ -324,6 +375,7 @@ def load_state_from_disk():
         data = json.load(fi)
     state.uploads = data.get("uploads", [])
     state._next_upload_id = data.get("next_upload_id", state._next_upload_id)
+    state.smus = data.get("smus", state.smus)
 
 
 def start_connection_background():
