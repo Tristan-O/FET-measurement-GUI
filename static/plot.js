@@ -49,13 +49,28 @@ function addPlot() {
   const container = document.createElement('div');
   container.className = 'plot-block';
   container.innerHTML = `
-    <div class="plot-controls">
-      X: <span class="xsel"></span>
-      Y: <span class="ysel"></span>
-      <button class="add-y">Add Y</button>
-      <button class="remove-plot">Remove</button>
+    <div class="plot-left">
+      <div class="plot-controls">
+        <div class="control-row">
+          <label>X:</label>
+          <span class="xsel"></span>
+        </div>
+        <div class="control-row">
+          <label>Y:</label>
+          <span class="ysel"></span>
+        </div>
+        <div class="control-row">
+          <label><input type="checkbox" class="xlog" /> Log X</label>
+          <label><input type="checkbox" class="ylog" /> Log Y</label>
+        </div>
+        <div class="control-row">
+          <button class="remove-plot">Remove</button>
+        </div>
+      </div>
     </div>
-    <div id="${id}" class="plot-area" style="height:400px;"></div>
+    <div class="plot-right">
+      <div id="${id}" class="plot-area"></div>
+    </div>
   `;
   document.getElementById('plots').appendChild(container);
 
@@ -76,37 +91,29 @@ function addPlot() {
       const xarr = xset ? xset.array : yset.array.map((_,i)=>i);
       traces.push({ x: xarr, y: yset.array, name: `${yset.filename}:${yset.name}` });
     });
-    Plotly.newPlot(id, traces, {margin:{t:30}});
+    const xlog = container.querySelector('.xlog').checked;
+    const ylog = container.querySelector('.ylog').checked;
+    const layout = { margin:{t:30}, xaxis:{type: xlog ? 'log' : 'linear'}, yaxis:{type: ylog ? 'log' : 'linear'} };
+    Plotly.newPlot(id, traces, layout);
   }
 
   xsel.addEventListener('change', updatePlot);
   ysel.addEventListener('change', updatePlot);
-
-  container.querySelector('.add-y').addEventListener('click', ()=>{
-    // show a popup selector for a single y
-    const sel = makeSelect(buildOptions(), false);
-    const dialog = document.createElement('div');
-    dialog.className = 'tmp-dialog';
-    const btn = document.createElement('button'); btn.textContent='Add';
-    const cancel = document.createElement('button'); cancel.textContent='Cancel';
-    dialog.appendChild(sel); dialog.appendChild(btn); dialog.appendChild(cancel);
-    document.body.appendChild(dialog);
-    btn.addEventListener('click', ()=>{
-      const key = sel.value;
-      const opt = document.createElement('option');
-      opt.value = key; opt.textContent = sel.selectedOptions[0].textContent; opt.selected = true;
-      ysel.appendChild(opt);
-      dialog.remove();
-      updatePlot();
-    });
-    cancel.addEventListener('click', ()=>{ dialog.remove(); });
-  });
+  const xlog = container.querySelector('.xlog');
+  const ylog = container.querySelector('.ylog');
+  if (xlog) xlog.addEventListener('change', updatePlot);
+  if (ylog) ylog.addEventListener('change', updatePlot);
+  // (Add Y removed - multi-select already available)
 
   container.querySelector('.remove-plot').addEventListener('click', ()=>{
     container.remove();
   });
 
-  // initial plot
+  // initial plot: set sensible defaults
+  if (opts.length > 0) {
+    xsel.value = opts[0].key;
+    if (ysel.options.length > 0) ysel.options[0].selected = true;
+  }
   updatePlot();
 }
 

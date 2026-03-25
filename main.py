@@ -3,6 +3,7 @@ import os
 import threading
 import io
 import csv
+import math
 from datetime import datetime
 import json
 from flask import Flask, render_template, jsonify, request
@@ -151,7 +152,50 @@ def parse_csv_text(text):
             except Exception:
                 columns[h].append(None)
 
-    return {"headers": headers, "columns": columns, "rows_count": len(rows)}
+    # Detect if there is an index-like column (integer sequence with step 1)
+    nrows = len(rows)
+    def is_index_column(col):
+        if not col or len(col) != nrows:
+            return False
+        # must have no missing values
+        for v in col:
+            if v is None:
+                return False
+            if not isinstance(v, (int, float)):
+                return False
+            if math.isnan(v):
+                return False
+        # all integer valued
+        ints = [int(round(x)) for x in col]
+        for a, b in zip(col, ints):
+            if not math.isclose(a, b):
+                return False
+        # check step 1 progression
+        if nrows <= 1:
+            return True
+        diffs = [ints[i+1] - ints[i] for i in range(len(ints)-1)]
+        if all(d == 1 for d in diffs) and (ints[0] in (0, 1)):
+            return True
+        return False
+
+    found_index = False
+    for h in headers:
+        if is_index_column(columns.get(h, [])):
+            found_index = True
+            break
+
+    if not found_index:
+        # create an index column starting at 0
+        idx_name = 'index'
+        # avoid name collision
+        i = 0
+        while idx_name in columns:
+            i += 1
+            idx_name = f'index{i}'
+        columns = {idx_name: [float(i) for i in range(nrows)], **columns}
+        headers = [idx_name] + headers
+
+    return {"headers": headers, "columns": columns, "rows_count": nrows}
 
 
 @app.route("/api/upload", methods=["POST"])

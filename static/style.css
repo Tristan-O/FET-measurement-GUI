@@ -36,3 +36,23 @@ th {
 #upload-result {
     margin-top: 8px 
 }
+
+/* Plot page styles */
+.plot-block {
+    border: 1px solid #e6e6e6;
+    padding: 10px;
+    margin: 12px 0;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+}
+.plot-left { width: 300px; display:flex; align-items:flex-start }
+.plot-right { flex: 1; display:flex; }
+.plot-controls { display:flex; flex-direction:column; gap:12px; width:100% }
+.control-row { display:flex; gap:8px; align-items:center }
+.plot-controls label { font-weight:600; margin-right:8px; width:36px }
+.plot-controls select { min-width:220px; padding:6px }
+.plot-controls button { padding:6px 10px; border-radius:4px; border:1px solid #ccc; background:#fff; cursor:pointer }
+.plot-area { flex:1; height:420px; }
+.tmp-dialog { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); background:#fff; padding:12px; border:1px solid #ddd; box-shadow:0 6px 18px rgba(0,0,0,0.08) }
