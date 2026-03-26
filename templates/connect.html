@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Connect Instruments</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.plot.ly/plotly-2.18.2.min.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Connect Instruments</h1>
+    <section>
+      <label>Instrument Type: 
+        <select id="inst-type">
+          <option value="keithley2602">Keithley 2602</option>
+        </select>
+      </label>
+      <button id="add-inst">Add</button>
+    </section>
+
+    <section>
+      <h2>Connected Devices</h2>
+      <div id="devices"></div>
+    </section>
+  </main>
+  <script src="/static/connect.js"></script>
+</body>
+</html>

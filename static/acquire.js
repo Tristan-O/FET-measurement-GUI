@@ -215,4 +215,24 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!streamSource) { startStream(); streamBtn.textContent='Stop Stream'; } else { stopStream(); streamBtn.textContent='Start Stream'; }
     });
   }
+
+  // Force update handlers (trigger immediate measurement & DataFrame append)
+  async function forceUpdate() {
+    try {
+      const r = await fetch('/api/force_update', { method: 'POST' });
+      const j = await r.json();
+      if (r.ok) {
+        result.textContent = 'Forced update: ' + JSON.stringify(j);
+      } else {
+        result.textContent = 'Force failed: ' + (j.error || r.statusText);
+      }
+    } catch (e) {
+      result.textContent = 'Force error: ' + e;
+    }
+  }
+
+  const smuaForce = document.getElementById('smua-force');
+  if (smuaForce) smuaForce.addEventListener('click', forceUpdate);
+  const smubForce = document.getElementById('smub-force');
+  if (smubForce) smubForce.addEventListener('click', forceUpdate);
 });

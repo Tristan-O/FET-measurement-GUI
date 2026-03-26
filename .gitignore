@@ -1,8 +1,12 @@
 *.json
-*.hdf5
 *.csv
+
+*.hdf5
+
 *.png
 *.jpg
 *.jpeg
 *.tif
 *.tiff
+
+*.pyc

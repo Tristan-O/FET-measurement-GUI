@@ -6,6 +6,7 @@ import csv
 import math
 import time
 import pandas as pd
+import math
 from datetime import datetime
 import json
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context
@@ -13,6 +14,8 @@ try:
     import pyvisa
 except Exception:
     pyvisa = None
+from keithley import Keithley2602
+import copy
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -22,40 +25,15 @@ KEITHLEY_CURR_RANGES = ["±100nA", "±1uA", "±10uA", "±100uA", "±1mA", "±10m
 
 
 # Shared state for instrument connection and uploads
-class InstrumentState:
+class State:
     def __init__(self):
-        self.rm = None
-        self.inst = None
-        self.status = "not opened"
-        self.idn = None
+        # instruments dict keyed by instrument id -> {'obj': instance, 'smus': {...}}
+        self.instruments = {}
         self.upload = None
         self.uploads = []
         self._next_upload_id = 1
-        # SMU configs for A and B
-        self.smus = {
-            "A": {
-                "output": False,
-                "nplc": 1,
-                "source": "voltage",
-                "src_voltage_range": "±100mV",
-                "src_voltage_limit": 0.0,
-                "src_current_range": "±100nA",
-                "src_current_limit": 0.0,
-                "meas_voltage_range": "±100mV",
-                "meas_current_range": "±100nA"
-            },
-            "B": {
-                "output": False,
-                "nplc": 1,
-                "source": "voltage",
-                "src_voltage_range": "±100mV",
-                "src_voltage_limit": 0.0,
-                "src_current_range": "±100nA",
-                "src_current_limit": 0.0,
-                "meas_voltage_range": "±100mV",
-                "meas_current_range": "±100nA"
-            }
-        }
+        # DataFrame to store streaming samples. Start with ts and SMU A/B cols
+        self.stream_df = pd.DataFrame(columns=['ts', 'A_v', 'A_i', 'B_v', 'B_i'])
 
     def new_upload_id(self):
         uid = self._next_upload_id
@@ -63,7 +41,10 @@ class InstrumentState:
         return uid
 
 
-state = InstrumentState()
+state = State()
+
+# global start time for streaming; set when stream begins first time
+t0 = None
 
 
 def open_instrument(address=None, timeout=5):
@@ -126,26 +107,42 @@ def index():
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    return jsonify({"status": state.status, "idn": state.idn})
+    # report simple instrument info if any instrument connected
+    if state.instruments:
+        inst_entry = next(iter(state.instruments.values()))
+        inst_obj = inst_entry.get('obj') if isinstance(inst_entry, dict) else inst_entry
+        return jsonify({"status": "opened", "idn": getattr(inst_obj, 'idn', None)})
+    return jsonify({"status": "closed", "idn": None})
 
 
 @app.route("/api/open", methods=["POST"])
 def api_open():
-    open_instrument()
-    return jsonify({"status": state.status, "idn": state.idn})
+    # legacy single-open: create and add instrument of default type
+    k = Keithley2602()
+    try:
+        ok = k.open()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    if ok:
+        iid = f'keithley{len(state.instruments)+1}'
+        # store object and its SMU config copy
+        state.instruments[iid] = {'obj': k, 'smus': copy.deepcopy(state.smus)}
+        return jsonify({"status": "opened", "idn": k.idn, "id": iid})
+    return jsonify({"status": "no Keithley 2602 found"}), 404
 
 
 @app.route("/api/close", methods=["POST"])
 def api_close():
     try:
-        if state.inst is not None:
+        # close all instruments
+        for entry in list(state.instruments.values()):
             try:
-                state.inst.close()
+                inst = entry['obj'] if isinstance(entry, dict) else entry
+                inst.close()
             except Exception:
                 pass
-            state.inst = None
-        state.status = "closed"
-        return jsonify({"ok": True, "status": state.status})
+        state.instruments = {}
+        return jsonify({"ok": True, "status": "closed"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -290,31 +287,35 @@ def api_upload():
 @app.route('/stream')
 def stream():
     def gen():
-        t0 = time.time()
+        global t0
+        if t0 is None:
+            t0 = time.time()
         while True:
             payload = {'ts': time.time() - t0, 'data': {'a': {'v': None, 'i': None}, 'b': {'v': None, 'i': None}}}
             a_v = a_i = b_v = b_i = None
-            if state.inst is not None:
-                # Only poll SMUs that have their output ON
-                for k in ('a', 'b'):
-                    smu_key = k.upper()
-                    smu_cfg = state.smus.get(smu_key, {})
-                    if not smu_cfg.get('output'):
-                        # leave values as None when output is off
-                        payload['data'][k]['v'] = None
-                        payload['data'][k]['i'] = None
+            if state.instruments:
+                # pick the first instrument in the dict
+                inst_entry = next(iter(state.instruments.values()))
+                inst_obj = inst_entry['obj'] if isinstance(inst_entry, dict) else inst_entry
+                inst_smus = inst_entry.get('smus') if isinstance(inst_entry, dict) else None
+                # get a measurement dict from the instrument
+                try:
+                    meas = inst_obj.measure() or {}
+                except Exception:
+                    meas = {'A_v': None, 'A_i': None, 'B_v': None, 'B_i': None}
+                # Only include values for SMUs whose output is ON (per-instrument if available)
+                for k in ('A', 'B'):
+                    cfg = (inst_smus.get(k) if inst_smus and k in inst_smus else state.smus.get(k, {}))
+                    key_v = f"{k}_v"
+                    key_i = f"{k}_i"
+                    if not cfg.get('output'):
+                        payload['data'][k.lower()]['v'] = None
+                        payload['data'][k.lower()]['i'] = None
                         continue
-                    # instrument-specific query; TSP-style measure calls
-                    try:
-                        v = state.inst.query(f'print(smu{smu_key.lower()}.measure.v())').strip()
-                        i = state.inst.query(f'print(smu{smu_key.lower()}.measure.i())').strip()
-                        payload['data'][k]['v'] = float(v)
-                        payload['data'][k]['i'] = float(i)
-                    except Exception:
-                        # if any read fails, set None for that channel
-                        payload['data'][k]['v'] = None
-                        payload['data'][k]['i'] = None
-                # extract for storage convenience
+                    vv = meas.get(key_v)
+                    ii = meas.get(key_i)
+                    payload['data'][k.lower()]['v'] = vv
+                    payload['data'][k.lower()]['i'] = ii
                 a_v = payload['data']['a'].get('v')
                 a_i = payload['data']['a'].get('i')
                 b_v = payload['data']['b'].get('v')
@@ -324,7 +325,13 @@ def stream():
 
             # Append the sampled row to the in-memory DataFrame
             try:
-                state.stream_df.loc[len(state.stream_df)] = [payload['ts'], a_v, a_i, b_v, b_i]
+                # ensure DataFrame has the expected columns, add if necessary
+                cols = ['ts', 'A_v', 'A_i', 'B_v', 'B_i']
+                for c in cols:
+                    if c not in state.stream_df.columns:
+                        state.stream_df[c] = pd.NA
+                row = { 'ts': payload['ts'], 'A_v': a_v, 'A_i': a_i, 'B_v': b_v, 'B_i': b_i }
+                state.stream_df = pd.concat([state.stream_df, pd.DataFrame([row])], ignore_index=True)
             except Exception:
                 # be defensive: if append fails, continue without crashing the generator
                 pass
@@ -359,9 +366,9 @@ def plot_page():
     return render_template("plot.html")
 
 
-@app.route("/acquire")
+@app.route("/connect")
 def acquire_page():
-    return render_template("acquire.html")
+    return render_template("connect.html")
 
 
 @app.route("/api/rename", methods=["POST"])
@@ -385,45 +392,6 @@ def api_rename():
                     return jsonify({"ok": True})
             return jsonify({"error": "Column not found. Try refreshing."}), 404
     return jsonify({"error": "upload not found"}), 404
-
-
-@app.route('/api/smu/<which>', methods=['GET', 'POST'])
-def api_smu(which):
-    # accept 'A' or 'B' or 'smua'/'smub'
-    key = which.upper()
-    if key.startswith('SMU'):
-        key = key[-1]
-    if key not in ('A', 'B'):
-        return jsonify({'error': 'unknown SMU'}), 404
-
-    if request.method == 'GET':
-        return jsonify({'smu': state.smus.get(key)})
-
-    data = request.get_json() or {}
-    # update allowed fields
-    allowed = {'output', 'nplc', 'source', 'src_voltage_range', 'src_voltage_limit', 'src_current_range', 'src_current_limit', 'meas_voltage_range', 'meas_current_range'}
-    for k, v in data.items():
-        if k in allowed:
-            state.smus[key][k] = v
-
-    # Normalize ranges to Keithley-allowed values before saving
-    smu = state.smus[key]
-    smu['src_voltage_range'] = normalize_range_string(smu.get('src_voltage_range'), KEITHLEY_VOLT_RANGES)
-    smu['meas_voltage_range'] = normalize_range_string(smu.get('meas_voltage_range'), KEITHLEY_VOLT_RANGES)
-    smu['src_current_range'] = normalize_range_string(smu.get('src_current_range'), KEITHLEY_CURR_RANGES)
-    smu['meas_current_range'] = normalize_range_string(smu.get('meas_current_range'), KEITHLEY_CURR_RANGES)
-
-    try:
-        save_state_to_disk()
-    except Exception:
-        pass
-    # If instrument is open, attempt to apply these settings to the device
-    try:
-        apply_smu_to_instrument(key)
-    except Exception as e:
-        # don't fail the request if instrument commands error
-        print(f'Tried to apply settings to SMU{key}, but got', e)
-    return jsonify({'ok': True, 'smu': state.smus.get(key)})
 
 
 def _parse_range_value(r):
@@ -492,75 +460,6 @@ def normalize_range_string(val, allowed_list, default=None):
     return allowed_list[best_idx]
 
 
-def apply_smu_to_instrument(which):
-    """Attempt to apply SMU settings to the connected instrument using TSP or SCPI.
-
-    This function is best-effort and will swallow errors so the web UI stays responsive.
-    """
-    if state.inst is None:
-        return
-    key = which.upper()
-    if key not in ('A', 'B'):
-        return
-    prefix = f'smu{key.lower()}'
-    smu = state.smus.get(key, {})
-    inst = state.inst
-
-    # Try TSP-style commands first
-    try:
-        def write(cmd):
-            print(cmd)
-            inst.write(cmd)
-            # print(inst.query('errorqueue.next()').strip())
-
-        # source function
-        if smu.get('source') == 'voltage':
-            write(f"{prefix}.source.func = {prefix}.OUTPUT_DCVOLTS")
-            # set level to 0 by default; do not drive output value automatically
-            write(f"{prefix}.source.levelv = 0")
-            write(f'display.{prefix}.measure.func = display.MEASURE_DCAMPS')
-        else:
-            write(f"{prefix}.source.func = {prefix}.OUTPUT_DCCURRENT")
-            write(f"{prefix}.source.leveli = 0")
-            write(f'display.{prefix}.measure.func = display.MEASURE_DCVOLTS')
-
-        # nplc
-        if 'nplc' in smu:
-            write(f"{prefix}.measure.nplc = {int(smu.get('nplc',1))}")
-
-        # ranges and limits
-        vr = _parse_range_value(smu.get('src_voltage_range'))
-        if vr is not None:
-            write(f"{prefix}.source.rangev = {vr:.6e}")
-        cr = _parse_range_value(smu.get('src_current_range'))
-        if cr is not None:
-            write(f"{prefix}.source.rangei = {cr:.6e}")
-
-        if 'src_voltage_limit' in smu:
-            write(f"{prefix}.source.limitv = {float(smu.get('src_voltage_limit',0)):.6e}")
-        if 'src_current_limit' in smu:
-            write(f"{prefix}.source.limiti = {float(smu.get('src_current_limit',0)):.6e}")
-
-        mvr = _parse_range_value(smu.get('meas_voltage_range'))
-        if mvr is not None:
-            write(f"{prefix}.measure.rangev = {mvr:.6e}")
-        mcr = _parse_range_value(smu.get('meas_current_range'))
-        if mcr is not None:
-            write(f"{prefix}.measure.rangei = {mcr:.6e}")
-
-        # output on/off
-        if smu.get('output'):
-            write(f"{prefix}.source.output = {prefix}.OUTPUT_ON")
-        else:
-            write(f"{prefix}.source.output = {prefix}.OUTPUT_OFF")
-
-        return True
-    except Exception as e:
-        # fall through to SCPI-style attempts
-        print('While trying to write to instrument, got exception', e)
-        return False
-
-
 def save_state_to_disk():
     data = {"uploads": state.uploads, "next_upload_id": state._next_upload_id, "smus": state.smus}
     p = os.path.join(os.path.dirname(__file__), "data_store.json")
@@ -576,20 +475,179 @@ def load_state_from_disk():
         data = json.load(fi)
     state.uploads = data.get("uploads", [])
     state._next_upload_id = data.get("next_upload_id", state._next_upload_id)
-    state.smus = data.get("smus", state.smus)
-    # Normalize any stored ranges to allowed Keithley values
+
+
+@app.route('/api/force_update', methods=['POST'])
+def api_force_update():
+    # Trigger an immediate measurement from the first instrument and append to stream_df
+    if not state.instruments:
+        return jsonify({'error': 'no instrument'}), 404
+    inst_entry = next(iter(state.instruments.values()))
+    inst_obj = inst_entry['obj'] if isinstance(inst_entry, dict) else inst_entry
+    inst_smus = inst_entry.get('smus') if isinstance(inst_entry, dict) else None
+    try:
+        meas = inst_obj.measure() or {}
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    # Build payload for both SMUs, honoring per-instrument output flags
+    payload = {'ts': time.time(), 'meas': {}}
     for k in ('A', 'B'):
-        smu = state.smus.get(k, {})
-        smu['src_voltage_range'] = normalize_range_string(smu.get('src_voltage_range'), KEITHLEY_VOLT_RANGES)
-        smu['meas_voltage_range'] = normalize_range_string(smu.get('meas_voltage_range'), KEITHLEY_VOLT_RANGES)
-        smu['src_current_range'] = normalize_range_string(smu.get('src_current_range'), KEITHLEY_CURR_RANGES)
-        smu['meas_current_range'] = normalize_range_string(smu.get('meas_current_range'), KEITHLEY_CURR_RANGES)
-        state.smus[k] = smu
+        cfg = (inst_smus.get(k) if inst_smus and k in inst_smus else state.smus.get(k, {}))
+        if not cfg.get('output'):
+            payload['meas'][f'{k}_v'] = None
+            payload['meas'][f'{k}_i'] = None
+            continue
+        payload['meas'][f'{k}_v'] = meas.get(f'{k}_v')
+        payload['meas'][f'{k}_i'] = meas.get(f'{k}_i')
+
+    # Append to DataFrame, creating missing columns if needed
+    try:
+        cols = ['ts', 'A_v', 'A_i', 'B_v', 'B_i']
+        for c in cols:
+            if c not in state.stream_df.columns:
+                state.stream_df[c] = pd.NA
+        row = { 'ts': payload['ts'], 'A_v': payload['meas'].get('A_v'), 'A_i': payload['meas'].get('A_i'), 'B_v': payload['meas'].get('B_v'), 'B_i': payload['meas'].get('B_i') }
+        state.stream_df = pd.concat([state.stream_df, pd.DataFrame([row])], ignore_index=True)
+    except Exception:
+        pass
+
+    return jsonify({'ok': True, 'meas': payload})
 
 
 def start_connection_background():
     address = os.environ.get("KEITHLEY_ADDRESS")
     open_instrument(address=address)
+
+
+@app.route('/api/instrument/add', methods=['POST'])
+def api_instrument_add(): 
+    j = request.get_json() or {}
+    typ = j.get('type')
+    if typ == 'keithley2602' or typ == 'keithley':
+        k = Keithley2602()
+        iid = f'keithley{len(state.instruments)+1}'
+        state.instruments[iid] = {'obj': k}
+        return jsonify({'ok': True, 'id': iid, 'type': 'keithley2602'})
+    return jsonify({'error': 'unknown type'}), 400
+
+
+@app.route('/api/instrument/<iid>/card', methods=['GET'])
+def api_instrument_card(iid):
+    entry = state.instruments.get(iid)
+    if not entry:
+        return jsonify({'error': 'not found'}), 404
+    inst = entry.get('obj') if isinstance(entry, dict) else entry
+    type_name = None
+    # try to infer a type name
+    if isinstance(entry, dict) and entry.get('smus') is not None:
+        type_name = getattr(inst, '__class__', type(inst)).__name__
+    try:
+        html = inst.card_html(iid, type_name=type_name)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'html': html})
+
+
+@app.route('/api/instrument/<iid>/open', methods=['POST'])
+def api_instrument_open(iid):
+    entry = state.instruments.get(iid)
+    if not entry:
+        return jsonify({'error': 'not found'}), 404
+    inst = entry['obj'] if isinstance(entry, dict) else entry
+    try:
+        ok = inst.open()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    if ok:
+        return jsonify({'ok': True, 'status': 'opened', 'idn': getattr(inst, 'idn', None)})
+    else:
+        return jsonify({'ok': False, 'status': 'open failed'}), 500
+
+
+@app.route('/api/instrument/<iid>/close', methods=['POST'])
+def api_instrument_close(iid):
+    entry = state.instruments.get(iid)
+    if not entry:
+        return jsonify({'error': 'not found'}), 404
+    inst = entry['obj'] if isinstance(entry, dict) else entry
+    try:
+        inst.close()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True})
+
+
+@app.route('/api/instrument/<iid>', methods=['DELETE'])
+def api_instrument_delete(iid):
+    entry = state.instruments.get(iid)
+    if not entry:
+        return jsonify({'error': 'not found'}), 404
+    inst = entry['obj'] if isinstance(entry, dict) else entry
+    try:
+        inst.close()
+    except Exception:
+        pass
+    state.instruments[iid] = None
+    return jsonify({'ok': True})
+
+
+@app.route('/api/instrument/<iid>/force_update', methods=['POST'])
+def api_instrument_force(iid):
+    entry = state.instruments.get(iid)
+    if not entry:
+        return jsonify({'error': 'not found'}), 404
+    inst = entry['obj'] if isinstance(entry, dict) else entry
+    inst_smus = entry.get('smus') if isinstance(entry, dict) else None
+    try:
+        meas = inst.measure() or {}
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    # build payload filtered by per-instrument smus
+    payload = {'ts': time.time(), 'meas': {}}
+    for k in ('A', 'B'):
+        cfg = (inst_smus.get(k) if inst_smus and k in inst_smus else state.smus.get(k, {}))
+        if not cfg.get('output'):
+            payload['meas'][f'{k}_v'] = None
+            payload['meas'][f'{k}_i'] = None
+        else:
+            payload['meas'][f'{k}_v'] = meas.get(f'{k}_v')
+            payload['meas'][f'{k}_i'] = meas.get(f'{k}_i')
+    # append to DataFrame
+    try:
+        cols = ['ts', 'A_v', 'A_i', 'B_v', 'B_i']
+        for c in cols:
+            if c not in state.stream_df.columns:
+                state.stream_df[c] = pd.NA
+        row = { 'ts': payload['ts'], 'A_v': payload['meas'].get('A_v'), 'A_i': payload['meas'].get('A_i'), 'B_v': payload['meas'].get('B_v'), 'B_i': payload['meas'].get('B_i') }
+        state.stream_df = pd.concat([state.stream_df, pd.DataFrame([row])], ignore_index=True)
+    except Exception:
+        pass
+    return jsonify({'ok': True, 'meas': payload})
+
+
+@app.route('/api/instrument/<iid>/update', methods=['GET', 'POST'])
+def api_instrument_update(iid):
+    entry = state.instruments.get(iid)
+    if not entry:
+        return jsonify({'error': 'not found'}), 404
+
+    inst = entry.get('obj') if isinstance(entry, dict) else entry
+
+    if request.method == 'GET':
+        # Return stored per-instrument SMU config (if any)
+        return jsonify({'settings': inst.settings})
+
+    data = request.get_json() or {}
+
+    try:
+        res = inst.update(data)
+        # If update returns a dict, send it back; otherwise just acknowledge
+        if isinstance(res, dict):
+            return jsonify(res)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
     load_state_from_disk()
