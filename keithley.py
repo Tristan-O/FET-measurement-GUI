@@ -202,7 +202,7 @@ class Keithley2602(InstrumentBase):
                     write(f"{smux}.source.levelv = 0")
                     write(f"display.{smux}.measure.func = display.MEASURE_DCAMPS")
                 else:
-                    write(f"{smux}.source.func = {smux}.OUTPUT_DCCURRENT")
+                    write(f"{smux}.source.func = {smux}.OUTPUT_DCAMPS")
                     write(f"{smux}.source.leveli = 0")
                     write(f"display.{smux}.measure.func = display.MEASURE_DCVOLTS")
             except Exception as e:
@@ -271,11 +271,89 @@ class Keithley2602(InstrumentBase):
         instrument-agnostic and simply POST a flat dict of settings to the
         backend.
         """
-        nplc_options = ''.join(f"<option value=\"{i}\">{i}</option>" for i in range(1, 11))
+        # Helper to parse range strings like "±100mV" -> numeric (in base units)
+        def _parse_range_val(x):
+            if x is None:
+                return None
+            if isinstance(x, (int, float)):
+                return float(x)
+            s = str(x).strip()
+            # strip leading ± and trailing units
+            if s.startswith('±'):
+                s = s[1:]
+            if s.endswith('V') or s.endswith('A'):
+                unit = s[-1]
+                s = s[:-1]
+            # handle SI suffix
+            mul = 1.0
+            if s.endswith('n'):
+                mul = 1e-9; s = s[:-1]
+            elif s.endswith('u'):
+                mul = 1e-6; s = s[:-1]
+            elif s.endswith('m'):
+                mul = 1e-3; s = s[:-1]
+            try:
+                return float(s) * mul
+            except Exception:
+                try:
+                    return float(s)
+                except Exception:
+                    return None
+
+        # option lists
+        nplc_list = list(range(1, 11))
         volt_opts = ["±100mV", "±1V", "±6V", "±40V"]
         curr_opts = ["±100nA", "±1uA", "±10uA", "±100uA", "±1mA", "±10mA", "±100mA", "±1A"]
-        volt_options = ''.join(f"<option value=\"{v}\">{v}</option>" for v in volt_opts)
-        curr_options = ''.join(f"<option value=\"{c}\">{c}</option>" for c in curr_opts)
+
+        def _opts_html_for_nplc(current):
+            parts = []
+            for i in nplc_list:
+                sel = ' selected' if (str(current) == str(i) or (isinstance(current, (int,float)) and int(current) == i)) else ''
+                parts.append(f'<option value="{i}"{sel}>{i}</option>')
+            return ''.join(parts)
+
+        def _opts_html_for_ranges(options_list, current):
+            cur_num = _parse_range_val(current)
+            parts = []
+            for opt in options_list:
+                opt_num = _parse_range_val(opt)
+                sel = ''
+                if current is not None:
+                    if isinstance(current, str) and current == opt:
+                        sel = ' selected'
+                    else:
+                        try:
+                            if cur_num is not None and opt_num is not None and abs(cur_num - opt_num) < 1e-12:
+                                sel = ' selected'
+                        except Exception:
+                            pass
+                parts.append(f'<option value="{opt}"{sel}>{opt}</option>')
+            return ''.join(parts)
+
+        # read current settings for each key (fall back to defaults)
+        def s(key):
+            return self.settings.get(key, Keithley2602.DEFAULT_SETTINGS.get(key))
+
+        # build per-control HTML fragments with current values marked/filled
+        nplc_options_A = _opts_html_for_nplc(s('smua.nplc'))
+        nplc_options_B = _opts_html_for_nplc(s('smub.nplc'))
+        volt_options_A = _opts_html_for_ranges(volt_opts, s('smua.src_voltage_range'))
+        volt_options_B = _opts_html_for_ranges(volt_opts, s('smub.src_voltage_range'))
+        curr_options_A = _opts_html_for_ranges(curr_opts, s('smua.src_current_range'))
+        curr_options_B = _opts_html_for_ranges(curr_opts, s('smub.src_current_range'))
+
+        checked_a = ' checked' if bool(s('smua.output')) else ''
+        checked_b = ' checked' if bool(s('smub.output')) else ''
+        src_a = s('smua.source')
+        src_b = s('smub.source')
+        _a_v = s('smua.src_voltage_limit')
+        _b_v = s('smub.src_voltage_limit')
+        _a_i = s('smua.src_current_limit')
+        _b_i = s('smub.src_current_limit')
+        src_a_level = '' if _a_v is None else _a_v
+        src_b_level = '' if _b_v is None else _b_v
+        src_a_climit = '' if _a_i is None else _a_i
+        src_b_climit = '' if _b_i is None else _b_i
 
         return f"""
     <h3>{type_name} <small>({iid})</small></h3>
@@ -287,30 +365,30 @@ class Keithley2602(InstrumentBase):
       <button class=\"remove\">Remove</button>
     </div>
     <div class=\"smu-grid\">
-      <div class=\"smu-col\" id=\"{iid}-smu-A\">
-        <h4>SMU A</h4>
-        <label>Output: <input type=\"checkbox\" id=\"{iid}-smuA-output\" data-key=\"smua.output\" /></label>
-        <label>NPLC: <select id=\"{iid}-smuA-nplc\" data-key=\"smua.nplc\">{nplc_options}</select></label>
-        <label>Source: <select id=\"{iid}-smuA-source\" data-key=\"smua.source\"><option value=\"voltage\">Voltage</option><option value=\"current\">Current</option></select></label>
-        <label>Source Voltage Range: <select id=\"{iid}-smuA-src-voltage-range\" data-key=\"smua.src_voltage_range\">{volt_options}</select></label>
-        <label>Source Voltage Limit: <input id=\"{iid}-smuA-src-voltage-limit\" type=\"number\" step=\"any\" data-key=\"smua.src_voltage_limit\"/></label>
-        <label>Source Current Range: <select id=\"{iid}-smuA-src-current-range\" data-key=\"smua.src_current_range\">{curr_options}</select></label>
-        <label>Source Current Limit: <input id=\"{iid}-smuA-src-current-limit\" type=\"number\" step=\"any\" data-key=\"smua.src_current_limit\"/></label>
-        <label>Measure Voltage Range: <select id=\"{iid}-smuA-meas-voltage-range\" data-key=\"smua.meas_voltage_range\">{volt_options}</select></label>
-        <label>Measure Current Range: <select id=\"{iid}-smuA-meas-current-range\" data-key=\"smua.meas_current_range\">{curr_options}</select></label>
-      </div>
-      <div class=\"smu-col\" id=\"{iid}-smu-B\">
-        <h4>SMU B</h4>
-        <label>Output: <input type=\"checkbox\" id=\"{iid}-smuB-output\" data-key=\"smub.output\" /></label>
-        <label>NPLC: <select id=\"{iid}-smuB-nplc\" data-key=\"smub.nplc\">{nplc_options}</select></label>
-        <label>Source: <select id=\"{iid}-smuB-source\" data-key=\"smub.source\"><option value=\"voltage\">Voltage</option><option value=\"current\">Current</option></select></label>
-        <label>Source Voltage Range: <select id=\"{iid}-smuB-src-voltage-range\" data-key=\"smub.src_voltage_range\">{volt_options}</select></label>
-        <label>Source Voltage Limit: <input id=\"{iid}-smuB-src-voltage-limit\" type=\"number\" step=\"any\" data-key=\"smub.src_voltage_limit\"/></label>
-        <label>Source Current Range: <select id=\"{iid}-smuB-src-current-range\" data-key=\"smub.src_current_range\">{curr_options}</select></label>
-        <label>Source Current Limit: <input id=\"{iid}-smuB-src-current-limit\" type=\"number\" step=\"any\" data-key=\"smub.src_current_limit\"/></label>
-        <label>Measure Voltage Range: <select id=\"{iid}-smuB-meas-voltage-range\" data-key=\"smub.meas_voltage_range\">{volt_options}</select></label>
-        <label>Measure Current Range: <select id=\"{iid}-smuB-meas-current-range\" data-key=\"smub.meas_current_range\">{curr_options}</select></label>
-      </div>
+            <div class="smu-col" id="{iid}-smu-A">
+                <h4>SMU A</h4>
+                <label>Output: <input type="checkbox" id="{iid}-smuA-output" data-key="smua.output"{checked_a} /></label>
+                <label>NPLC: <select id="{iid}-smuA-nplc" data-key="smua.nplc">{nplc_options_A}</select></label>
+                <label>Source: <select id="{iid}-smuA-source" data-key="smua.source"><option value="voltage"{' selected' if src_a=='voltage' else ''}>Voltage</option><option value="current"{' selected' if src_a=='current' else ''}>Current</option></select></label>
+                <label>Source Voltage Range: <select id="{iid}-smuA-src-voltage-range" data-key="smua.src_voltage_range">{volt_options_A}</select></label>
+                <label>Source Voltage Limit: <input id="{iid}-smuA-src-voltage-limit" type="number" step="any" data-key="smua.src_voltage_limit" value="{src_a_level}"/></label>
+                <label>Source Current Range: <select id="{iid}-smuA-src-current-range" data-key="smua.src_current_range">{curr_options_A}</select></label>
+                <label>Source Current Limit: <input id="{iid}-smuA-src-current-limit" type="number" step="any" data-key="smua.src_current_limit" value="{src_a_climit}"/></label>
+                <label>Measure Voltage Range: <select id="{iid}-smuA-meas-voltage-range" data-key="smua.meas_voltage_range">{volt_options_A}</select></label>
+                <label>Measure Current Range: <select id="{iid}-smuA-meas-current-range" data-key="smua.meas_current_range">{curr_options_A}</select></label>
+            </div>
+            <div class="smu-col" id="{iid}-smu-B">
+                <h4>SMU B</h4>
+                <label>Output: <input type="checkbox" id="{iid}-smuB-output" data-key="smub.output"{checked_b} /></label>
+                <label>NPLC: <select id="{iid}-smuB-nplc" data-key="smub.nplc">{nplc_options_B}</select></label>
+                <label>Source: <select id="{iid}-smuB-source" data-key="smub.source"><option value="voltage"{' selected' if src_b=='voltage' else ''}>Voltage</option><option value="current"{' selected' if src_b=='current' else ''}>Current</option></select></label>
+                <label>Source Voltage Range: <select id="{iid}-smuB-src-voltage-range" data-key="smub.src_voltage_range">{volt_options_B}</select></label>
+                <label>Source Voltage Limit: <input id="{iid}-smuB-src-voltage-limit" type="number" step="any" data-key="smub.src_voltage_limit" value="{src_b_level}"/></label>
+                <label>Source Current Range: <select id="{iid}-smuB-src-current-range" data-key="smub.src_current_range">{curr_options_B}</select></label>
+                <label>Source Current Limit: <input id="{iid}-smuB-src-current-limit" type="number" step="any" data-key="smub.src_current_limit" value="{src_b_climit}"/></label>
+                <label>Measure Voltage Range: <select id="{iid}-smuB-meas-voltage-range" data-key="smub.meas_voltage_range">{volt_options_B}</select></label>
+                <label>Measure Current Range: <select id="{iid}-smuB-meas-current-range" data-key="smub.meas_current_range">{curr_options_B}</select></label>
+            </div>
     </div>
     <div class=\"device-plot\" style=\"height:240px\"></div>
     """
