@@ -19,11 +19,6 @@ import copy
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
-# Keithley 2602 allowed ranges
-KEITHLEY_VOLT_RANGES = ["±100mV", "±1V", "±6V", "±40V"]
-KEITHLEY_CURR_RANGES = ["±100nA", "±1uA", "±10uA", "±100uA", "±1mA", "±10mA", "±100mA", "±1A"]
-
-
 # Shared state for instrument connection and uploads
 class State:
     def __init__(self):
@@ -33,71 +28,16 @@ class State:
         self.uploads = []
         self._next_upload_id = 1
         # DataFrame to store streaming samples. Start with ts and SMU A/B cols
-        self.stream_df = pd.DataFrame(columns=['ts', 'A_v', 'A_i', 'B_v', 'B_i'])
+        self.stream_df = pd.DataFrame(columns=['ts'])
 
     def new_upload_id(self):
         uid = self._next_upload_id
         self._next_upload_id += 1
         return uid
-
-
 state = State()
 
 # global start time for streaming; set when stream begins first time
 t0 = None
-
-
-def open_instrument(address=None, timeout=5):
-    """Attempt to open a connection to a Keithley 2602.
-
-    If `address` is provided it will be used. Otherwise we scan available
-    resources, query *IDN? and pick the device that identifies as a 2602.
-    """
-    if pyvisa is None:
-        state.status = "pyvisa not installed"
-        return
-
-    try:
-        state.rm = pyvisa.ResourceManager()
-    except Exception as e:
-        state.status = f"failed to create ResourceManager: {e}"
-        return
-
-    resources = []
-    try:
-        resources = list(state.rm.list_resources())
-    except Exception as e:
-        state.status = f"failed to list resources: {e}"
-        return
-
-    # If explicit address given, try that first
-    try_order = []
-    if address:
-        try_order.append(address)
-    try_order.extend(r for r in resources if r not in try_order)
-
-    for res in try_order:
-        try:
-            inst = state.rm.open_resource(res, timeout=timeout * 1000)
-            try:
-                idn = inst.query("*IDN?").strip()
-            except Exception:
-                idn = None
-
-            if idn and "2602" in idn:
-                state.inst = inst
-                state.status = "opened"
-                state.idn = idn
-                return
-            else:
-                try:
-                    inst.close()
-                except Exception:
-                    pass
-        except Exception:
-            continue
-
-    state.status = "no Keithley 2602 found"
 
 
 @app.route("/")
@@ -515,11 +455,6 @@ def api_force_update():
     return jsonify({'ok': True, 'meas': payload})
 
 
-def start_connection_background():
-    address = os.environ.get("KEITHLEY_ADDRESS")
-    open_instrument(address=address)
-
-
 @app.route('/api/instrument/add', methods=['POST'])
 def api_instrument_add(): 
     j = request.get_json() or {}
@@ -530,6 +465,16 @@ def api_instrument_add():
         state.instruments[iid] = {'obj': k}
         return jsonify({'ok': True, 'id': iid, 'type': 'keithley2602'})
     return jsonify({'error': 'unknown type'}), 400
+
+
+@app.route('/api/instruments', methods=['GET'])
+def api_instruments_list():
+    out = []
+    for iid, entry in state.instruments.items():
+        inst = entry.get('obj') if isinstance(entry, dict) else entry
+        tname = getattr(inst, '__class__', type(inst)).__name__
+        out.append({'id': iid, 'type': tname})
+    return jsonify({'instruments': out})
 
 
 @app.route('/api/instrument/<iid>/card', methods=['GET'])
@@ -635,8 +580,10 @@ def api_instrument_update(iid):
     inst = entry.get('obj') if isinstance(entry, dict) else entry
 
     if request.method == 'GET':
-        # Return stored per-instrument SMU config (if any)
-        return jsonify({'settings': inst.settings})
+        # Return the flat stored settings and any instrument-provided options.
+        # The instrument is responsible for exposing its own option lists.
+        settings = getattr(inst, 'settings', {}) or {}
+        return jsonify({'settings': settings})
 
     data = request.get_json() or {}
 
