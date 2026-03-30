@@ -45,48 +45,6 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/status", methods=["GET"])
-def api_status():
-    # report simple instrument info if any instrument connected
-    if state.instruments:
-        inst_entry = next(iter(state.instruments.values()))
-        inst_obj = inst_entry.get('obj') if isinstance(inst_entry, dict) else inst_entry
-        return jsonify({"status": "opened", "idn": getattr(inst_obj, 'idn', None)})
-    return jsonify({"status": "closed", "idn": None})
-
-
-@app.route("/api/open", methods=["POST"])
-def api_open():
-    # legacy single-open: create and add instrument of default type
-    k = Keithley2602()
-    try:
-        ok = k.open()
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    if ok:
-        iid = f'keithley{len(state.instruments)+1}'
-        # store object and its SMU config copy
-        state.instruments[iid] = {'obj': k, 'smus': copy.deepcopy(state.smus)}
-        return jsonify({"status": "opened", "idn": k.idn, "id": iid})
-    return jsonify({"status": "no Keithley 2602 found"}), 404
-
-
-@app.route("/api/close", methods=["POST"])
-def api_close():
-    try:
-        # close all instruments
-        for entry in list(state.instruments.values()):
-            try:
-                inst = entry['obj'] if isinstance(entry, dict) else entry
-                inst.close()
-            except Exception:
-                pass
-        state.instruments = {}
-        return jsonify({"ok": True, "status": "closed"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 def parse_csv_text(text):
     # Try to sniff dialect and header
     sample = text[:4096]
@@ -334,72 +292,6 @@ def api_rename():
     return jsonify({"error": "upload not found"}), 404
 
 
-def _parse_range_value(r):
-    if not r:
-        return None
-    s = str(r).replace('\u00b1', '').replace('±', '').replace('+/-', '').strip()
-    # remove unit letters
-    s_unit = s
-    # strip trailing V or A
-    if s_unit.endswith('V') or s_unit.endswith('A'):
-        s_unit = s_unit[:-1]
-    s_unit = s_unit.strip()
-
-    # detect SI suffixes: n (nano), u (micro), m (milli)
-    mul = 1.0
-    if s_unit.endswith('n'):
-        mul = 1e-9
-        s_num = s_unit[:-1]
-    elif s_unit.endswith('u'):
-        mul = 1e-6
-        s_num = s_unit[:-1]
-    elif s_unit.endswith('m'):
-        mul = 1e-3
-        s_num = s_unit[:-1]
-    else:
-        s_num = s_unit
-
-    try:
-        val = float(s_num)
-        return val * mul
-    except Exception:
-        return None
-
-
-def normalize_range_string(val, allowed_list, default=None):
-    """Return the closest allowed range string from allowed_list based on numeric magnitude.
-
-    If val is None or cannot be parsed, return default or the first allowed item.
-    """
-    if default is None:
-        default = allowed_list[0] if allowed_list else None
-    if not val:
-        return default
-    if val in allowed_list:
-        return val
-    num = _parse_range_value(val)
-    if num is None:
-        return default
-    # compute numeric magnitudes for allowed_list
-    magnitudes = []
-    for a in allowed_list:
-        v = _parse_range_value(a)
-        if v is None:
-            magnitudes.append(float('inf'))
-        else:
-            magnitudes.append(abs(v))
-    # choose allowed entry with closest magnitude to num
-    target = abs(num)
-    best_idx = 0
-    best_diff = abs(magnitudes[0] - target)
-    for i in range(1, len(magnitudes)):
-        d = abs(magnitudes[i] - target)
-        if d < best_diff:
-            best_diff = d
-            best_idx = i
-    return allowed_list[best_idx]
-
-
 def save_state_to_disk():
     data = {"uploads": state.uploads, "next_upload_id": state._next_upload_id, "smus": state.smus}
     p = os.path.join(os.path.dirname(__file__), "data_store.json")
@@ -535,40 +427,6 @@ def api_instrument_delete(iid):
         pass
     state.instruments[iid] = None
     return jsonify({'ok': True})
-
-
-@app.route('/api/instrument/<iid>/force_update', methods=['POST'])
-def api_instrument_force(iid):
-    entry = state.instruments.get(iid)
-    if not entry:
-        return jsonify({'error': 'not found'}), 404
-    inst = entry['obj'] if isinstance(entry, dict) else entry
-    inst_smus = entry.get('smus') if isinstance(entry, dict) else None
-    try:
-        meas = inst.measure() or {}
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    # build payload filtered by per-instrument smus
-    payload = {'ts': time.time(), 'meas': {}}
-    for k in ('A', 'B'):
-        cfg = (inst_smus.get(k) if inst_smus and k in inst_smus else state.smus.get(k, {}))
-        if not cfg.get('output'):
-            payload['meas'][f'{k}_v'] = None
-            payload['meas'][f'{k}_i'] = None
-        else:
-            payload['meas'][f'{k}_v'] = meas.get(f'{k}_v')
-            payload['meas'][f'{k}_i'] = meas.get(f'{k}_i')
-    # append to DataFrame
-    try:
-        cols = ['ts', 'A_v', 'A_i', 'B_v', 'B_i']
-        for c in cols:
-            if c not in state.stream_df.columns:
-                state.stream_df[c] = pd.NA
-        row = { 'ts': payload['ts'], 'A_v': payload['meas'].get('A_v'), 'A_i': payload['meas'].get('A_i'), 'B_v': payload['meas'].get('B_v'), 'B_i': payload['meas'].get('B_i') }
-        state.stream_df = pd.concat([state.stream_df, pd.DataFrame([row])], ignore_index=True)
-    except Exception:
-        pass
-    return jsonify({'ok': True, 'meas': payload})
 
 
 @app.route('/api/instrument/<iid>/update', methods=['GET', 'POST'])
