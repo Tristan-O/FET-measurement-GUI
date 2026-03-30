@@ -1,76 +1,14 @@
-import time
-from abc import ABC, abstractmethod
+from InstrumentBase import InstrumentBase
 try:
     import pyvisa
 except Exception:
     pyvisa = None
 
 
-class InstrumentBase(ABC):
-    """Abstract base class for instruments used by the GUI.
-
-    Subclasses should implement low-level operations the server expects:
-    - `open(address, timeout)`
-    - `close()`
-    - `write(cmd)` and `query(q)` for instrument I/O
-    - `apply_smu(which, cfg)` (optional)
-    - `measure()` returning a dict of measurements
-    - `update(settings)` to accept generic per-device updates
-    """
-
-    @abstractmethod
-    def open(self, address=None, timeout=5):
-        raise NotImplementedError()
-
-    @abstractmethod
-    def close(self):
-        raise NotImplementedError()
-
-    @abstractmethod
-    def write(self, cmd):
-        raise NotImplementedError()
-
-    @abstractmethod
-    def query(self, q):
-        raise NotImplementedError()
-
-    def apply_smu(self, which, smu):
-        """Optional: apply SMU settings for channel `which`.
-
-        Implementations may provide this; default is to raise NotImplementedError
-        so callers can fall back if needed.
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def measure(self):
-        raise NotImplementedError()
-
-    def update(self, settings: dict):
-        """Optional: accept a generic settings dict and apply them.
-
-        This allows the server to send device-specific payloads
-        (for example {'a': {...}, 'b': {...}} for a Keithley 2602).
-        Implementations should return a dict or True/False.
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def card_html(self, iid: str, type_name: str = None) -> str:
-        """Return an HTML string for the device card shown on /connect.
-
-        Subclasses should produce a small block of HTML to be injected into
-        the devices container. `iid` is the instrument id assigned by the
-        server and `type_name` is an optional human-readable device type.
-        """
-        raise NotImplementedError()
-
-
 class Keithley2602(InstrumentBase):
     """Minimal wrapper for a Keithley 2602 instrument.
 
-    Provides `open(address)`, `close()`, `apply_smu(which, cfg)`, `update(settings)`
-    and `measure()`.
+    Provides `open(address)`, `close()`, `update(settings)` and `measure()`.
     """
     DEFAULT_SETTINGS = {
         "smua.output": False,
@@ -95,12 +33,15 @@ class Keithley2602(InstrumentBase):
     }
 
     def __init__(self):
+        super().__init__()
         self.rm = None
         self.inst = None
         self.idn = None
-        # flat SMU configuration dictionary with keys like 'smua.output', 'smub.nplc'
-        self.settings = Keithley2602.DEFAULT_SETTINGS.copy()
-
+    def get(self, smux:str, key:str|None=None):
+        '''Get a setting from the current settings dict.'''
+        if key is not None:
+            smux = f'{smux}.{key}'
+        return super().get(smux)
     def open(self, address=None, timeout=5):
         if pyvisa is None:
             raise RuntimeError('pyvisa not available')
@@ -131,7 +72,6 @@ class Keithley2602(InstrumentBase):
             except Exception as e:
                 print(e)
         return False
-
     def close(self):
         if self.inst is not None:
             try:
@@ -139,17 +79,14 @@ class Keithley2602(InstrumentBase):
             except Exception:
                 pass
             self.inst = None
-
     def write(self, cmd):
         if self.inst is None:
             raise RuntimeError('instrument not open')
         self.inst.write(cmd)
-
     def query(self, q):
         if self.inst is None:
             raise RuntimeError('instrument not open')
         return self.inst.query(q)
-
     def update(self, settings: dict):
         """Apply configuration using flat keys like 'smua.output' and 'smub.nplc'.
 
@@ -178,73 +115,67 @@ class Keithley2602(InstrumentBase):
         if self.inst is None:
             return True
 
-        # apply settings to the instrument
-        def get(smux, key):
-            return self.settings.get(f'{smux}.{key}', Keithley2602.DEFAULT_SETTINGS.get(f'{smux}.{key}'))
-        def write(cmd):
-            print(cmd)
-            self.inst.write(cmd)
+        
             
         for smux in ('smua', 'smub'):
-            out_flag = get(smux, 'output')
+            out_flag = self.get(smux, 'output')
 
             # ensure output off while configuring
             if not out_flag:
                 try:
-                    write(f"{smux}.source.output = {smux}.OUTPUT_OFF")
+                    self.write(f"{smux}.source.output = {smux}.OUTPUT_OFF")
                 except Exception as e:
                     print('ERROR: While trying to set output state',e)
 
-            source = get(smux, 'source')
+            source = self.get(smux, 'source')
             try:
                 if source == 'voltage':
-                    write(f"{smux}.source.func = {smux}.OUTPUT_DCVOLTS")
-                    write(f"{smux}.source.levelv = 0")
-                    write(f"display.{smux}.measure.func = display.MEASURE_DCAMPS")
+                    self.write(f"{smux}.source.func = {smux}.OUTPUT_DCVOLTS")
+                    self.write(f"{smux}.source.levelv = 0")
+                    self.write(f"display.{smux}.measure.func = display.MEASURE_DCAMPS")
                 else:
-                    write(f"{smux}.source.func = {smux}.OUTPUT_DCAMPS")
-                    write(f"{smux}.source.leveli = 0")
-                    write(f"display.{smux}.measure.func = display.MEASURE_DCVOLTS")
+                    self.write(f"{smux}.source.func = {smux}.OUTPUT_DCAMPS")
+                    self.write(f"{smux}.source.leveli = 0")
+                    self.write(f"display.{smux}.measure.func = display.MEASURE_DCVOLTS")
             except Exception as e:
                 print('ERROR: While trying to set output type (V, I)',e)
 
             try:
-                nplc = int(get(smux, 'nplc'))
-                write(f"{smux}.measure.nplc = {nplc}")
+                nplc = int(self.get(smux, 'nplc'))
+                self.write(f"{smux}.measure.nplc = {nplc}")
             except Exception as e:
                 print('ERROR: While trying to set NPLC',e)
 
             try:
-                src_vrange = float(get(smux, 'src_voltage_range'))
-                mes_vrange = float(get(smux, 'src_voltage_range'))
-                vlim = float(get(smux, 'src_voltage_limit')) or float(Keithley2602.DEFAULT_SETTINGS.get(f'{smux}.src_voltage_limit'))
-                write(f"{smux}.source.rangev = {src_vrange:0.6e}")
-                write(f"{smux}.measure.rangev = {mes_vrange:0.6e}")
-                write(f"{smux}.source.limitv = {vlim:.6e}")
+                src_vrange = float(self.get(smux, 'src_voltage_range'))
+                mes_vrange = float(self.get(smux, 'src_voltage_range'))
+                vlim = float(self.get(smux, 'src_voltage_limit')) or float(Keithley2602.DEFAULT_SETTINGS.get(f'{smux}.src_voltage_limit'))
+                self.write(f"{smux}.source.rangev = {src_vrange:0.6e}")
+                self.write(f"{smux}.measure.rangev = {mes_vrange:0.6e}")
+                self.write(f"{smux}.source.limitv = {vlim:.6e}")
             except Exception as e:
                 print('ERROR: While trying to set voltage range/limit',e)
 
             try:
-                src_irange = float(get(smux, 'src_current_range'))
-                mes_irange = float(get(smux, 'src_current_range'))
-                ilim = float(get(smux, 'src_current_limit')) or float(Keithley2602.DEFAULT_SETTINGS.get(f'{smux}.src_current_limit'))
-                write(f"{smux}.source.rangei = {src_irange:0.6e}")
-                write(f"{smux}.measure.rangei = {mes_irange:0.6e}")
-                write(f"{smux}.source.limiti = {ilim:.6e}")
+                src_irange = float(self.get(smux, 'src_current_range'))
+                mes_irange = float(self.get(smux, 'src_current_range'))
+                ilim = float(self.get(smux, 'src_current_limit')) or float(Keithley2602.DEFAULT_SETTINGS.get(f'{smux}.src_current_limit'))
+                self.write(f"{smux}.source.rangei = {src_irange:0.6e}")
+                self.write(f"{smux}.measure.rangei = {mes_irange:0.6e}")
+                self.write(f"{smux}.source.limiti = {ilim:.6e}")
             except Exception as e:
                 print('ERROR: While trying to set current range/limit',e)
 
             # apply output on/off after configuration
             try:
                 if out_flag:
-                    write(f"{smux}.source.output = {smux}.OUTPUT_ON")
+                    self.write(f"{smux}.source.output = {smux}.OUTPUT_ON")
                 else:
-                    write(f"{smux}.source.output = {smux}.OUTPUT_OFF")
+                    self.write(f"{smux}.source.output = {smux}.OUTPUT_OFF")
             except Exception as e:
                 print('ERROR: While trying to set output',e)
 
         return True
-
     def measure(self):
         """Return a flat dictionary of measurements.
 
@@ -262,7 +193,6 @@ class Keithley2602(InstrumentBase):
             except Exception:
                 pass
         return out
-
     def card_html(self, iid: str, type_name: str = 'keithley2602') -> str:
         """Return HTML markup for a Keithley 2602 device card, including SMU controls.
 

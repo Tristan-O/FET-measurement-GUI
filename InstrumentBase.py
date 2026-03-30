@@ -1,0 +1,55 @@
+from abc import ABC, abstractmethod
+
+
+class InstrumentBase(ABC):
+    """Abstract base class for instruments used by the GUI.
+
+    Subclasses should implement low-level operations the server expects:
+    - `open(address, timeout)`
+    - `close()`
+    - `write(cmd)` and `query(q)` for instrument I/O
+    - `apply_smu(which, cfg)` (optional)
+    - `measure()` returning a dict of measurements
+    - `update(settings)` to accept generic per-device updates
+    """
+
+    DEFAULT_SETTINGS = {}
+
+    def __init__(self):
+        self.settings = self.DEFAULT_SETTINGS.copy()
+    def get(self, key):
+        '''Get a setting from the current settings dict.'''
+        return self.settings.get(key, self.DEFAULT_SETTINGS.get(key))
+    @abstractmethod
+    def open(self):
+        raise NotImplementedError()
+    @abstractmethod
+    def close(self):
+        raise NotImplementedError()
+    @abstractmethod
+    def write(self, cmd):
+        raise NotImplementedError()
+    @abstractmethod
+    def query(self, q):
+        raise NotImplementedError()
+    @abstractmethod
+    def measure(self):
+        raise NotImplementedError()
+    @abstractmethod
+    def update(self, settings: dict):
+        """Optional: accept a generic settings dict and apply them.
+
+        This allows the server to send device-specific payloads
+        (for example {'a': {...}, 'b': {...}} for a Keithley 2602).
+        Implementations should return a dict or True/False.
+        """
+        raise NotImplementedError()
+    @abstractmethod
+    def card_html(self, iid: str) -> str:
+        """Return an HTML string for the device card shown on /connect.
+
+        Subclasses should produce a small block of HTML to be injected into
+        the devices container. `iid` is the instrument id assigned by the
+        server and `type_name` is an optional human-readable device type.
+        """
+        raise NotImplementedError()
