@@ -35,7 +35,6 @@ class Keithley2602(InstrumentBase):
     def __init__(self):
         super().__init__()
         self.rm = None
-        self.inst = None
         self.idn = None
     def get(self, smux:str, key:str|None=None):
         '''Get a setting from the current settings dict.'''
@@ -72,21 +71,6 @@ class Keithley2602(InstrumentBase):
             except Exception as e:
                 print(e)
         return False
-    def close(self):
-        if self.inst is not None:
-            try:
-                self.inst.close()
-            except Exception:
-                pass
-            self.inst = None
-    def write(self, cmd):
-        if self.inst is None:
-            raise RuntimeError('instrument not open')
-        self.inst.write(cmd)
-    def query(self, q):
-        if self.inst is None:
-            raise RuntimeError('instrument not open')
-        return self.inst.query(q)
     def update(self, settings: dict):
         """Apply configuration using flat keys like 'smua.output' and 'smub.nplc'.
 

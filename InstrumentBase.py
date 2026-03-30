@@ -17,21 +17,30 @@ class InstrumentBase(ABC):
 
     def __init__(self):
         self.settings = self.DEFAULT_SETTINGS.copy()
+        self.inst = None
     def get(self, key):
         '''Get a setting from the current settings dict.'''
         return self.settings.get(key, self.DEFAULT_SETTINGS.get(key))
     @abstractmethod
     def open(self):
         raise NotImplementedError()
-    @abstractmethod
     def close(self):
-        raise NotImplementedError()
-    @abstractmethod
-    def write(self, cmd):
-        raise NotImplementedError()
-    @abstractmethod
-    def query(self, q):
-        raise NotImplementedError()
+        if self.inst is not None:
+            try:
+                self.inst.close()
+            except Exception:
+                pass
+            self.inst = None
+        else:
+            raise RuntimeError('Cannot close instrument. Instrument is not open!')
+    def write(self, cmd:str):
+        if self.inst is None:
+            raise RuntimeError('Instrument not open')
+        self.inst.write(cmd)
+    def query(self, q:str, output_type=str):
+        if self.inst is None:
+            raise RuntimeError('instrument not open')
+        return output_type(self.inst.query(q))
     @abstractmethod
     def measure(self):
         raise NotImplementedError()
