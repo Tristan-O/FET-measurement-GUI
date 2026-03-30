@@ -54,7 +54,8 @@ class Keithley2602(InstrumentBase):
         try_order = []
         if address:
             try_order.append(address)
-        try_order.extend(r for r in resources if r not in try_order)
+        try_order.extend(r for r in resources if r not in try_order if 'GPIB' in r)
+        try_order.extend(r for r in resources if r not in try_order if 'GPIB' not in r) # prefer GPIB addresses
         for res in try_order:
             try:
                 inst = self.rm.open_resource(res, timeout=timeout * 1000)
@@ -62,6 +63,7 @@ class Keithley2602(InstrumentBase):
                     idn = inst.query('*IDN?').strip()
                 except Exception:
                     idn = None
+                    continue
                 if idn and '2602' in idn:
                     self.inst = inst
                     self.idn = idn
@@ -74,7 +76,7 @@ class Keithley2602(InstrumentBase):
                     except Exception:
                         pass
             except Exception as e:
-                print(e)
+                print(f'ERROR: While trying to open instrument at address {res}, got exception', e)
         return False
     def update(self, settings: dict):
         """Apply configuration using flat keys like 'smua.output' and 'smub.nplc'.
