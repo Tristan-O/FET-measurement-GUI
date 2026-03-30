@@ -197,8 +197,8 @@ class Keithley2602(InstrumentBase):
         for smux in ('smua', 'smub'):
                 _get(f'print({smux}.measure.v())', f'{smux}.v')
                 _get(f'print({smux}.measure.i())', f'{smux}.i')
-                _get(f'print({smux}.levelv)', f'{smux}.setv')
-                _get(f'print({smux}.leveli)', f'{smux}.seti')
+                _get(f'print({smux}.source.levelv)', f'{smux}.setv')
+                _get(f'print({smux}.source.leveli)', f'{smux}.seti')
         return out
     def card_html(self, iid: str, type_name: str = 'keithley2602') -> str:
         """Return HTML markup for a Keithley 2602 device card, including SMU controls.
@@ -234,7 +234,8 @@ class Keithley2602(InstrumentBase):
             except Exception:
                 try:
                     return float(s)
-                except Exception:
+                except Exception as e:
+                    print(f'ERROR while trying parse range value {x}', e)
                     return None
 
         # option lists
@@ -267,26 +268,23 @@ class Keithley2602(InstrumentBase):
                 parts.append(f'<option value="{opt}"{sel}>{opt}</option>')
             return ''.join(parts)
 
-        # read current settings for each key (fall back to defaults)
-        def s(key):
-            return self.settings.get(key, Keithley2602.DEFAULT_SETTINGS.get(key))
 
         # build per-control HTML fragments with current values marked/filled
-        nplc_options_A = _opts_html_for_nplc(s('smua.nplc'))
-        nplc_options_B = _opts_html_for_nplc(s('smub.nplc'))
-        volt_options_A = _opts_html_for_ranges(volt_opts, s('smua.src_voltage_range'))
-        volt_options_B = _opts_html_for_ranges(volt_opts, s('smub.src_voltage_range'))
-        curr_options_A = _opts_html_for_ranges(curr_opts, s('smua.src_current_range'))
-        curr_options_B = _opts_html_for_ranges(curr_opts, s('smub.src_current_range'))
+        nplc_options_A = _opts_html_for_nplc(self.get('smua.nplc'))
+        nplc_options_B = _opts_html_for_nplc(self.get('smub.nplc'))
+        volt_options_A = _opts_html_for_ranges(volt_opts, self.get('smua.src_voltage_range'))
+        volt_options_B = _opts_html_for_ranges(volt_opts, self.get('smub.src_voltage_range'))
+        curr_options_A = _opts_html_for_ranges(curr_opts, self.get('smua.src_current_range'))
+        curr_options_B = _opts_html_for_ranges(curr_opts, self.get('smub.src_current_range'))
 
-        checked_a = ' checked' if bool(s('smua.output')) else ''
-        checked_b = ' checked' if bool(s('smub.output')) else ''
-        src_a = s('smua.source')
-        src_b = s('smub.source')
-        _a_v = s('smua.src_voltage_limit')
-        _b_v = s('smub.src_voltage_limit')
-        _a_i = s('smua.src_current_limit')
-        _b_i = s('smub.src_current_limit')
+        checked_a = ' checked' if bool(self.get('smua.output')) else ''
+        checked_b = ' checked' if bool(self.get('smub.output')) else ''
+        src_a = self.get('smua.source')
+        src_b = self.get('smub.source')
+        _a_v = self.get('smua.src_voltage_limit')
+        _b_v = self.get('smub.src_voltage_limit')
+        _a_i = self.get('smua.src_current_limit')
+        _b_i = self.get('smub.src_current_limit')
         src_a_level = '' if _a_v is None else _a_v
         src_b_level = '' if _b_v is None else _b_v
         src_a_climit = '' if _a_i is None else _a_i
@@ -298,7 +296,6 @@ class Keithley2602(InstrumentBase):
     <div class=\"device-controls\">
       <button class=\"open\">Open</button>
       <button class=\"close\">Close</button>
-      <button class=\"force\">Force Update</button>
       <button class=\"remove\">Remove</button>
     </div>
     <div class=\"smu-grid\">
@@ -313,6 +310,7 @@ class Keithley2602(InstrumentBase):
                 <label>Source Current Limit: <input id="{iid}-smuA-src-current-limit" type="number" step="any" data-key="smua.src_current_limit" value="{src_a_climit}"/></label>
                 <label>Measure Voltage Range: <select id="{iid}-smuA-meas-voltage-range" data-key="smua.meas_voltage_range">{volt_options_A}</select></label>
                 <label>Measure Current Range: <select id="{iid}-smuA-meas-current-range" data-key="smua.meas_current_range">{curr_options_A}</select></label>
+                <label>Level: <input id="{iid}-smuA-src-level" type="text" data-key="smua.level" value="{0}"/></label>
             </div>
             <div class="smu-col" id="{iid}-smu-B">
                 <h4>SMU B</h4>
@@ -325,6 +323,7 @@ class Keithley2602(InstrumentBase):
                 <label>Source Current Limit: <input id="{iid}-smuB-src-current-limit" type="number" step="any" data-key="smub.src_current_limit" value="{src_b_climit}"/></label>
                 <label>Measure Voltage Range: <select id="{iid}-smuB-meas-voltage-range" data-key="smub.meas_voltage_range">{volt_options_B}</select></label>
                 <label>Measure Current Range: <select id="{iid}-smuB-meas-current-range" data-key="smub.meas_current_range">{curr_options_B}</select></label>
+                <label>Level: <input id="{iid}-smuB-src-level" type="text" data-key="smub.level" value="{0}"/></label>
             </div>
     </div>
     <div class=\"device-plot\" style=\"height:240px\"></div>
