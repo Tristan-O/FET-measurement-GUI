@@ -40,7 +40,7 @@ class InstrumentBase(ABC):
     def query(self, q:str, output_type=str):
         if self.inst is None:
             raise RuntimeError('instrument not open')
-        return output_type(self.inst.query(q))
+        return output_type(self.inst.query(q).strip())
     @abstractmethod
     def measure(self):
         raise NotImplementedError()

@@ -172,8 +172,7 @@ class Keithley2602(InstrumentBase):
 
         def _get(cmd, key):
             try:
-                val = self.inst.query(cmd).strip()
-                out[key] = float(val)
+                out[key] = self.query(cmd, float)
             except:
                 print(f'Unable to get {key} using command {cmd}')
 
