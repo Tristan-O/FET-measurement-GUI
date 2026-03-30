@@ -1,4 +1,5 @@
 from InstrumentBase import InstrumentBase
+from Sweep import Sweep
 try:
     import pyvisa
 except Exception:
@@ -20,6 +21,7 @@ class Keithley2602(InstrumentBase):
         "smua.src_current_limit": 1e-7,
         "smua.meas_voltage_range": "±100mV",
         "smua.meas_current_range": "±100nA",
+        "smua.level": None,
 
         "smub.output": False,
         "smub.nplc": 1,
@@ -29,13 +31,16 @@ class Keithley2602(InstrumentBase):
         "smub.src_current_range": "±100nA",
         "smub.src_current_limit": 1e-7,
         "smub.meas_voltage_range": "±100mV",
-        "smub.meas_current_range": "±100nA"
+        "smub.meas_current_range": "±100nA",
+        "smub.level": None
     }
 
     def __init__(self):
         super().__init__()
         self.rm = None
         self.idn = None
+        self.sweeps = [Sweep([0]), Sweep([0])] # A, B
+        self._sweeps_iter = [None,None]
     def get(self, smux:str, key:str|None=None):
         '''Get a setting from the current settings dict.'''
         if key is not None:
@@ -84,6 +89,19 @@ class Keithley2602(InstrumentBase):
         )
         allowed_keys = [f'smua.{f}' for f in allowed_fields] + [f'smub.{f}' for f in allowed_fields]
 
+        if 'smua.level' in settings:
+            try:
+                self.sweeps[0] = Sweep.from_string(settings.pop('smua.level'))
+                self._sweeps_iter[0] = None
+            except:
+                pass
+        if 'smub.level' in settings:
+            try:
+                self.sweeps[1] = Sweep.from_string(settings.pop('smub.level'))
+                self._sweeps_iter[1] = None
+            except:
+                pass
+
         for k in settings.keys():
             if k not in allowed_keys:
                 raise ValueError(f'Unsupported setting key: {k}')
@@ -98,8 +116,6 @@ class Keithley2602(InstrumentBase):
         # if instrument not open, nothing more to do
         if self.inst is None:
             return True
-
-        
             
         for smux in ('smua', 'smub'):
             out_flag = self.get(smux, 'output')
@@ -311,3 +327,13 @@ class Keithley2602(InstrumentBase):
     </div>
     <div class=\"device-plot\" style=\"height:240px\"></div>
     """
+    def next(self):
+        for i in (0,1):
+            if self._sweeps_iter[i] is None:
+                self._sweeps_iter[i] = iter(self.sweeps[i])
+        for i, smux in enumerate(('smua', 'smub')):
+            if self.settings[f'{smux}.output']:
+                src = self.settings[f"{smux}.source"][0].lower()
+                val = next(self._sweeps_iter[i])
+                self.write(f'{smux}.level{src} = {val:0.6e}')
+        return self.measure()
