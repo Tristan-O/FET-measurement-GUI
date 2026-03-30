@@ -14,7 +14,7 @@ try:
     import pyvisa
 except Exception:
     pyvisa = None
-from keithley import Keithley2602
+from Keithley2602 import Keithley2602
 import copy
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
