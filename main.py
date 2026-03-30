@@ -45,11 +45,10 @@ class PausableThread(threading.Thread):
         self._pause_event = threading.Event()
         self._pause_event.set()  # Initially set, so thread runs immediately
         self._stop_event = threading.Event()
-        self._stop_event.clear()  # Initially unset, so thread will not stop
+        self._stop_event.set()  # Initially set, so thread will not stop immediately
         self.target = target
         self.args = args
         self.kwargs = kwargs if kwargs is not None else {}
-
     def run(self):
         i = 0
         t0 = time.time()
@@ -59,14 +58,12 @@ class PausableThread(threading.Thread):
 
             # Check for a stop condition
             time.sleep(0) # Use time.sleep() to control loop speed
-            if self._stop_event.is_set(): 
+            if not self._stop_event.is_set(): 
                 break
 
             # --- Thread's work goes here ---
             self.target(*self.args, **self.kwargs, iter_num=i, t0=t0)
             i += 1
-
-
     def pause(self, pause=None):
         """Pause the thread's execution."""
         if pause is None:
@@ -76,14 +73,11 @@ class PausableThread(threading.Thread):
             self._pause_event.clear() # Clear the flag, causing wait() to block
         else:
             self._pause_event.set()
-
     def resume(self):
         """Resume the thread's execution."""
         self._pause_event.set() # Set the flag, unblocking wait()
-
     def stop(self):
-        # A separate event or flag would be needed for a graceful stop mechanism
-        self._stop_event.set()
+        self._stop_event.clear()
         self._pause_event.set()
 
 
