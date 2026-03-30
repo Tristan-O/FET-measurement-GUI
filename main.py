@@ -9,6 +9,7 @@ import pandas as pd
 import math
 from datetime import datetime
 import json
+from collections import OrderedDict
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 try:
     import pyvisa
@@ -23,18 +24,68 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 class State:
     def __init__(self):
         # instruments dict keyed by instrument id -> {'obj': instance, 'smus': {...}}
-        self.instruments = {}
+        self.instruments = OrderedDict()
         self.upload = None
         self.uploads = []
         self._next_upload_id = 1
         # DataFrame to store streaming samples. Start with ts and SMU A/B cols
         self.stream_df = pd.DataFrame(columns=['ts'])
-
+        # streaming control flag
+        self.streaming = False
+        self.measure_thread:PausableThread = None
     def new_upload_id(self):
         uid = self._next_upload_id
         self._next_upload_id += 1
         return uid
 state = State()
+
+class PausableThread(threading.Thread):
+    def __init__(self, target, args=(), kwargs=None):
+        super().__init__()
+        self._pause_event = threading.Event()
+        self._pause_event.set()  # Initially set, so thread runs immediately
+        self._stop_event = threading.Event()
+        self._stop_event.clear()  # Initially unset, so thread will not stop
+        self.target = target
+        self.args = args
+        self.kwargs = kwargs if kwargs is not None else {}
+
+    def run(self):
+        i = 0
+        t0 = time.time()
+        while True:
+            # The thread waits here if the event is cleared
+            self._pause_event.wait() 
+
+            # Check for a stop condition
+            time.sleep(0) # Use time.sleep() to control loop speed
+            if self._stop_event.is_set(): 
+                break
+
+            # --- Thread's work goes here ---
+            self.target(*self.args, **self.kwargs, iter_num=i, t0=t0)
+            i += 1
+
+
+    def pause(self, pause=None):
+        """Pause the thread's execution."""
+        if pause is None:
+            pause = self._pause_event.is_set()
+        
+        if pause:
+            self._pause_event.clear() # Clear the flag, causing wait() to block
+        else:
+            self._pause_event.set()
+
+    def resume(self):
+        """Resume the thread's execution."""
+        self._pause_event.set() # Set the flag, unblocking wait()
+
+    def stop(self):
+        # A separate event or flag would be needed for a graceful stop mechanism
+        self._stop_event.set()
+        self._pause_event.set()
+
 
 # global start time for streaming; set when stream begins first time
 t0 = None
@@ -182,13 +233,16 @@ def api_upload():
                         "headers": [c["name"] for c in upload["columns"]]}})
 
 
-@app.route('/stream')
+@app.route('/api/measure/stream')
 def stream():
     def gen():
-        global t0
-        if t0 is None:
-            t0 = time.time()
         while True:
+            # respect streaming flag; when paused, keep connection open but do not emit data
+            if not state.streaming:
+                time.sleep(0.5)
+                continue
+            if t0 is None:
+                t0 = time.time()
             payload = {'ts': time.time() - t0, 'data': {'a': {'v': None, 'i': None}, 'b': {'v': None, 'i': None}}}
             a_v = a_i = b_v = b_i = None
             if state.instruments:
@@ -237,6 +291,42 @@ def stream():
             yield f"data: {json.dumps(payload)}\n\n"
             time.sleep(0.5)
     return Response(stream_with_context(gen()), mimetype='text/event-stream')
+
+
+@app.route('/api/measure/start', methods=['POST'])
+def api_measure_start():
+    def measure(state=state, iter_num=0, t0=None):
+        for k,instr in state.instruments.items():
+            print( time.time()-t0, k, '\t', instr['obj'].next() )
+    if state.measure_thread is not None:
+        e = 'ERROR: Measurement thread cannot start, as it was never stopped!'
+        print(e)
+        return jsonify({'error': str(e)}), 500
+    state.measure_thread = PausableThread(measure)
+    state.measure_thread.start()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/measure/pause', methods=['POST'])
+def api_measure_pause():
+    if state.measure_thread is None:
+        e = 'ERROR: Measurement thread cannot pause, as it was never started!'
+        print(e)
+        return jsonify({'error': str(e)}), 500
+    state.measure_thread.pause()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/measure/stop', methods=['POST'])
+def api_measure_stop():
+    if state.measure_thread is None:
+        e = 'ERROR: Measurement thread cannot stop, as it was never started!'
+        print(e)
+        return jsonify({'error': str(e)}), 500
+    state.measure_thread.stop()
+    state.measure_thread.join()
+    state.measure_thread = None
+    return jsonify({'ok': True})
 
 
 @app.route("/api/data", methods=["GET"])
@@ -452,6 +542,7 @@ def api_instrument_update(iid):
             return jsonify(res)
         return jsonify({'ok': True})
     except Exception as e:
+        print(f'ERROR: In trying to update instrument {iid}, got', e)
         return jsonify({'error': str(e)}), 500
 
 

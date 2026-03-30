@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const r = await fetch('/api/instruments');
       const j = await r.json();
       const list = j.instruments || [];
-      list.forEach(inst => createDeviceCard(inst.iid, inst.type || 'device'));
+      list.forEach(inst => createDeviceCard(inst.id, inst.type || 'device'));
     } catch (e) { console.warn('loadExistingInstruments error', e); }
   }
 
@@ -104,4 +104,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
   addBtn.addEventListener('click', addInstrument);
   loadExistingInstruments();
+
+  // Stream control buttons (global for the page)
+  const startBtn = document.getElementById('start-measure');
+  const pauseBtn = document.getElementById('pause-measure');
+  const stopBtn = document.getElementById('stop-measure');
+
+  if (startBtn) startBtn.addEventListener('click', async () => {
+    try {
+      const r = await fetch('/api/measure/start', { method: 'POST' });
+      if (!r.ok) alert('Start failed');
+    } catch (e) { alert('Start error: ' + e); }
+  });
+
+  if (pauseBtn) pauseBtn.addEventListener('click', async () => {
+    try {
+      const r = await fetch('/api/measure/pause', { method: 'POST' });
+      if (!r.ok) alert('Pause failed');
+    } catch (e) { alert('Pause error: ' + e); }
+  });
+
+  if (stopBtn) stopBtn.addEventListener('click', async () => {
+    try {
+      const r = await fetch('/api/measure/stop', { method: 'POST' });
+      if (!r.ok) alert('Stop failed');
+    } catch (e) { alert('Stop error: ' + e); }
+  });
 });
