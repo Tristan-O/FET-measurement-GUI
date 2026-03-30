@@ -163,19 +163,25 @@ class Keithley2602(InstrumentBase):
     def measure(self):
         """Return a flat dictionary of measurements.
 
-        Format: {'A_v': val, 'A_i': val, 'B_v': val, 'B_i': val}
+        Format: {'smux.v': float, 'smux.i': float, 'smux.setv': float, 'smux.seti': float}
         """
-        out = {'A_v': None, 'A_i': None, 'B_v': None, 'B_i': None}
+        out = {'smua.v': None, 'smua.i': None, 'smua.setv': None, 'smua.seti': None,
+               'smub.v': None, 'smub.i': None, 'smub.setv': None, 'smub.seti': None}
         if self.inst is None:
             return out
-        for k in ('a', 'b'):
+
+        def _get(cmd, key):
             try:
-                v = self.inst.query(f'print(smu{k}.measure.v())').strip()
-                i = self.inst.query(f'print(smu{k}.measure.i())').strip()
-                out[f'{k.upper()}_v'] = float(v)
-                out[f'{k.upper()}_i'] = float(i)
-            except Exception:
-                pass
+                val = self.inst.query(cmd).strip()
+                out[key] = float(val)
+            except:
+                print(f'Unable to get {key} using command {cmd}')
+
+        for smux in ('smua', 'smub'):
+                _get(f'print({smux}.measure.v())', f'{smux}.v')
+                _get(f'print({smux}.measure.i())', f'{smux}.i')
+                _get(f'print({smux}.levelv)', f'{smux}.setv')
+                _get(f'print({smux}.leveli)', f'{smux}.seti')
         return out
     def card_html(self, iid: str, type_name: str = 'keithley2602') -> str:
         """Return HTML markup for a Keithley 2602 device card, including SMU controls.
