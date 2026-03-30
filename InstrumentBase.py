@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-
+import time
 
 class InstrumentBase(ABC):
     """Abstract base class for instruments used by the GUI.
@@ -14,10 +14,10 @@ class InstrumentBase(ABC):
     """
 
     DEFAULT_SETTINGS = {}
-
     def __init__(self):
         self.settings = self.DEFAULT_SETTINGS.copy()
         self.inst = None
+        self.delay = 0.02
     def get(self, key):
         '''Get a setting from the current settings dict.'''
         return self.settings.get(key, self.DEFAULT_SETTINGS.get(key))
@@ -37,13 +37,13 @@ class InstrumentBase(ABC):
         if self.inst is None:
             raise RuntimeError('Instrument not open')
         self.inst.write(cmd)
+        time.sleep(self.delay)
     def query(self, q:str, output_type=str):
         if self.inst is None:
             raise RuntimeError('instrument not open')
-        return output_type(self.inst.query(q).strip())
-    @abstractmethod
-    def measure(self):
-        raise NotImplementedError()
+        res = output_type(self.inst.query(q).strip())
+        time.sleep(self.delay)
+        return res
     @abstractmethod
     def update(self, settings: dict):
         """Optional: accept a generic settings dict and apply them.
