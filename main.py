@@ -609,7 +609,7 @@ def api_instrument_delete(iid):
         inst.close()
     except Exception:
         pass
-    state.instruments[iid] = None
+    state.instruments.pop(iid)
     return jsonify({'ok': True})
 
 
