@@ -149,6 +149,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const startBtn = document.getElementById('start-measure');
   const pauseBtn = document.getElementById('pause-measure');
   const stopBtn = document.getElementById('stop-measure');
+  const saveBtn = document.getElementById('save-measure');
+  const clearBtn = document.getElementById('clear-measure');
 
   if (startBtn) startBtn.addEventListener('click', async () => {
     try {
@@ -169,5 +171,36 @@ document.addEventListener('DOMContentLoaded', () => {
       const r = await fetch('/api/measure/stop', { method: 'POST' });
       if (!r.ok) alert('Stop failed');
     } catch (e) { alert('Stop error: ' + e); }
+  });
+
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    const notes = prompt('Enter notes for this measurement save:', '');
+    if (notes === null) return;
+    try {
+      const r = await fetch('/api/measure/save', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ notes })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        alert('Save failed: ' + (j.error || r.statusText));
+        return;
+      }
+      alert('Saved to ' + (j.file || 'data folder'));
+    } catch (e) { alert('Save error: ' + e); }
+  });
+
+  if (clearBtn) clearBtn.addEventListener('click', async () => {
+    if (!confirm('Clear current streamed data from memory?')) return;
+    try {
+      const r = await fetch('/api/measure/clear', { method: 'POST' });
+      const j = await r.json();
+      if (!r.ok) {
+        alert('Clear failed: ' + (j.error || r.statusText));
+        return;
+      }
+      alert('Stream data cleared.');
+    } catch (e) { alert('Clear error: ' + e); }
   });
 });

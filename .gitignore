@@ -2,6 +2,7 @@
 *.csv
 
 *.hdf5
+*.xlsx
 
 *.png
 *.jpg

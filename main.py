@@ -12,15 +12,13 @@ from datetime import datetime
 import json
 from collections import OrderedDict
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context
-try:
-    import pyvisa
-except Exception:
-    pyvisa = None
 from Keithley2602 import Keithley2602
 from Keithley6430 import Keithley6430
-import copy
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+BASE_DIR = os.path.dirname(__file__)
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
+DATA_DIR = os.path.join(BASE_DIR, "data")
 
 # Shared state for instrument connection and uploads
 class State:
@@ -31,7 +29,7 @@ class State:
         self.uploads = []
         self._next_upload_id = 1
         # DataFrame to store streaming samples. Start with ts and SMU A/B cols
-        self.stream_df = pd.DataFrame(columns=['ts'])
+        self.stream_df = pd.DataFrame()
         # streaming control flag
         self.streaming = False
         self.measure_thread:PausableThread = None
@@ -43,19 +41,21 @@ state = State()
 
 class PausableThread(threading.Thread):
     t0 = None
-    def __init__(self, target, args=(), kwargs=None):
+    def __init__(self, args=(), kwargs=None):
         super().__init__()
         self._pause_event = threading.Event()
         self._pause_event.set()  # Initially set, so thread runs immediately
         self._stop_event = threading.Event()
         self._stop_event.set()  # Initially set, so thread will not stop immediately
-        self.target = target
         self.args = args
         self.kwargs = kwargs if kwargs is not None else {}
     def run(self):
-        i = 0
+        iter_num = 0
         if PausableThread.t0 is None:
             PausableThread.t0 = time.time() 
+        os.makedirs(TEMP_DIR, exist_ok=True)
+        csv_path = os.path.join(TEMP_DIR, time.strftime('%Y-%m-%d_%H%M%S')+'_raw.csv')
+        last_written_row = 0
         while True:
             # The thread waits here if the event is cleared
             self._pause_event.wait() 
@@ -66,8 +66,44 @@ class PausableThread(threading.Thread):
                 break
 
             # --- Thread's work goes here ---
-            self.target(*self.args, **self.kwargs, iter_num=i, t0=PausableThread.t0)
-            i += 1
+            t = time.time()
+            res = {'ts':t, 'delta time':t-PausableThread.t0}
+            for k,instr in state.instruments.items():
+                res_ = instr['obj'].next()
+                res_ = {f'{k}.{k2}':e2 for k2,e2 in res_.items()}
+                res.update(res_)
+            if iter_num == 0:
+                for k in res:
+                    if k not in state.stream_df.columns:
+                        state.stream_df[k] = np.nan
+            state.stream_df.loc[len(state.stream_df)] = res
+
+            # Persist the newest row to CSV every iteration.
+            if iter_num % 10 == 9:
+                try:
+                    # Keep unwritten rows pending so transient file-write failures
+                    # do not lose samples.
+                    new_df = state.stream_df.iloc[last_written_row:].copy()
+                    if new_df.empty:
+                        iter_num += 1
+                        continue
+
+                    # Flatten pandas/numpy scalars for stable CSV output.
+                    new_df = new_df.where(~new_df.isna(), None)
+                    for col in new_df.columns:
+                        new_df[col] = new_df[col].map(lambda x: x.item() if hasattr(x, 'item') else x)
+
+                    new_df.to_csv(
+                        csv_path,
+                        mode='a',
+                        header=last_written_row==0,
+                        index=False
+                    )
+                    last_written_row += len(new_df)
+                except Exception as e:
+                    print('ERROR: Unable to append newest stream row to CSV:', e)
+
+            iter_num += 1
     def pause(self, pause=None):
         """Pause the thread's execution."""
         if pause is None:
@@ -262,22 +298,11 @@ def stream():
 
 @app.route('/api/measure/start', methods=['POST'])
 def api_measure_start():
-    def measure(state=state, iter_num=0, t0=None):
-        res = {'ts':time.time()-t0}
-        for k,instr in state.instruments.items():
-            res_ = instr['obj'].next()
-            res_ = {f'{k}.{k2}':e2 for k2,e2 in res_.items()}
-            res.update(res_)
-        if iter_num == 0:
-            for k in res:
-                if k not in state.stream_df.columns:
-                    state.stream_df[k] = np.nan
-        state.stream_df.loc[len(state.stream_df)] = res
     if state.measure_thread is not None:
         e = 'ERROR: Measurement thread cannot start, as it was never stopped!'
         print(e)
         return jsonify({'error': str(e)}), 500
-    state.measure_thread = PausableThread(measure)
+    state.measure_thread = PausableThread()
     for _,instr in state.instruments.items():
         instr['obj'].start()
     state.measure_thread.start()
@@ -306,6 +331,75 @@ def api_measure_stop():
     return jsonify({'ok': True})
 
 
+@app.route('/api/measure/save', methods=['POST'])
+def api_measure_save():
+    j = request.get_json() or {}
+    notes = (j.get('notes') or '').strip()
+    ts = time.strftime('%Y-%m-%d_%H%M%S')
+
+    if state.stream_df is None or state.stream_df.empty:
+        return jsonify({'error': 'No streaming data to save'}), 400
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    out_path = os.path.join(DATA_DIR, f'{ts}_measurement.xlsx')
+
+    # Build instrument settings sheet rows
+    settings_rows = []
+    for iid, entry in state.instruments.items():
+        if not entry:
+            continue
+        inst = entry.get('obj') if isinstance(entry, dict) else entry
+        if inst is None:
+            continue
+        tname = getattr(inst, '__class__', type(inst)).__name__
+        st = getattr(inst, 'status', None)
+        idn = getattr(inst, 'idn', None)
+        settings = getattr(inst, 'settings', {}) or {}
+        if settings:
+            for k, v in settings.items():
+                settings_rows.append({
+                    'instrument_id': iid,
+                    'instrument_type': tname,
+                    'status': st,
+                    'idn': idn,
+                    'setting_key': k,
+                    'setting_value': v
+                })
+        else:
+            settings_rows.append({
+                'instrument_id': iid,
+                'instrument_type': tname,
+                'status': st,
+                'idn': idn,
+                'setting_key': None,
+                'setting_value': None
+            })
+
+    notes_df = pd.DataFrame([{
+        'saved_time': time.strftime('%Y-%m-%d_%H%M%S'),
+        'notes': notes,
+        'rows_saved': len(state.stream_df)
+    }])
+    settings_df = pd.DataFrame(settings_rows)
+    data_df = state.stream_df.copy()
+
+    try:
+        with pd.ExcelWriter(out_path) as writer:
+            data_df.to_excel(writer, sheet_name='stream_data', index=False)
+            notes_df.to_excel(writer, sheet_name='notes', index=False)
+            settings_df.to_excel(writer, sheet_name='instrument_settings', index=False)
+    except Exception as e:
+        return jsonify({'error': f'Unable to save xlsx: {e}'}), 500
+
+    return jsonify({'ok': True, 'file': os.path.relpath(out_path, BASE_DIR)})
+
+
+@app.route('/api/measure/clear', methods=['POST'])
+def api_measure_clear():
+    state.stream_df = pd.DataFrame(columns=state.stream_df.columns)
+    return jsonify({'ok': True})
+
+
 @app.route("/api/data", methods=["GET"])
 def api_data():
     # Return summary of current uploads (filenames and header names)
@@ -328,13 +422,9 @@ def api_full():
     try:
         if not state.stream_df.empty and len(state.stream_df.columns) > 0:
             # create columns list from DataFrame
-            cols = []
+            cols = [{"name": 'index', "original_name": 'index', "array": state.stream_df.index.to_list(), "header_info": {}}]
             for c in state.stream_df.columns:
-                # convert series to plain Python list, preserving NaN/NA as null
-                try:
-                    arr = [ (None if pd.isna(x) else (x if not hasattr(x, 'item') else x.item())) for x in state.stream_df[c].tolist() ]
-                except Exception:
-                    arr = [ (None if (x is None) else x) for x in state.stream_df[c].tolist() ]
+                arr = state.stream_df[c].tolist()
                 cols.append({"name": c, "original_name": c, "array": arr, "header_info": {}})
             stream_upload = {
                 "id": 0,
