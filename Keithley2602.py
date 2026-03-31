@@ -21,7 +21,6 @@ class Keithley2602(InstrumentBase):
         "smua.src_current_limit": 1e-7,
         "smua.meas_voltage_range": "±100mV",
         "smua.meas_current_range": "±100nA",
-        "smua.level": None,
 
         "smub.output": False,
         "smub.nplc": 1,
@@ -31,10 +30,9 @@ class Keithley2602(InstrumentBase):
         "smub.src_current_range": "±100nA",
         "smub.src_current_limit": 1e-7,
         "smub.meas_voltage_range": "±100mV",
-        "smub.meas_current_range": "±100nA",
-        "smub.level": None
+        "smub.meas_current_range": "±100nA"
     }
-
+    ADDRESSES_IN_USE:list[str] = []
     def __init__(self):
         super().__init__()
         self.rm = None
@@ -56,9 +54,11 @@ class Keithley2602(InstrumentBase):
             try_order.append(address)
         try_order.extend(r for r in resources if r not in try_order if 'GPIB' in r)
         try_order.extend(r for r in resources if r not in try_order if 'GPIB' not in r) # prefer GPIB addresses
-        for res in try_order:
+        for addr in try_order:
+            if addr in self.__class__.ADDRESSES_IN_USE:
+                continue
             try:
-                inst = self.rm.open_resource(res, timeout=timeout * 1000)
+                inst = self.rm.open_resource(addr, timeout=timeout * 1000)
                 try:
                     idn = inst.query('*IDN?').strip()
                 except Exception:
@@ -70,6 +70,7 @@ class Keithley2602(InstrumentBase):
                     # apply stored settings to the opened instrument
                     self.update(self.settings)
                     self.status = 'open'
+                    self.__class__.ADDRESSES_IN_USE.append(addr)
                     return True
                 else:
                     try:
@@ -77,9 +78,15 @@ class Keithley2602(InstrumentBase):
                     except Exception:
                         pass
             except Exception as e:
-                print(f'ERROR: While trying to open instrument at address {res}, got exception', e)
+                print(f'ERROR: While trying to open instrument at address {addr}, got exception', e)
         self.status = 'failed to open'
         return False
+    def close(self):
+        addr = self.inst.resource_name
+        res = super().close()
+        cls = self.__class__
+        cls.ADDRESSES_IN_USE.pop(cls.ADDRESSES_IN_USE.index(addr))
+        return res
     def update(self, settings: dict):
         """Apply configuration using flat keys like 'smua.output' and 'smub.nplc'.
 
@@ -96,13 +103,11 @@ class Keithley2602(InstrumentBase):
         if 'smua.level' in settings:
             try:
                 self.sweeps[0] = Sweep.from_string(settings.pop('smua.level'))
-                self._sweeps_iter[0] = None
             except:
                 pass
         if 'smub.level' in settings:
             try:
                 self.sweeps[1] = Sweep.from_string(settings.pop('smub.level'))
-                self._sweeps_iter[1] = None
             except:
                 pass
 
@@ -190,8 +195,8 @@ class Keithley2602(InstrumentBase):
 
         Format: {'smux.v': float, 'smux.i': float, 'smux.setv': float, 'smux.seti': float}
         """
-        out = {'smua.v': None, 'smua.i': None, 'smua.setv': None, 'smua.seti': None,
-               'smub.v': None, 'smub.i': None, 'smub.setv': None, 'smub.seti': None}
+        out = {'smua.v': None, 'smub.v': None,   #'smua.setv': None, 'smua.seti': None,
+               'smua.i': None, 'smub.i': None, } #'smub.setv': None, 'smub.seti': None}
         if self.inst is None:
             return out
 
