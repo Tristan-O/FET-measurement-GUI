@@ -38,7 +38,7 @@ class Keithley2602(InstrumentBase):
     def __init__(self):
         super().__init__()
         self.rm = None
-        self.idn = None
+        self.idn = '-'
         self.sweeps = [Sweep([0]), Sweep([0])] # A, B
         self._sweep_idx = [0,0]
     def get(self, smux:str, key:str|None=None):
@@ -69,6 +69,7 @@ class Keithley2602(InstrumentBase):
                     self.idn = idn
                     # apply stored settings to the opened instrument
                     self.update(self.settings)
+                    self.status = 'open'
                     return True
                 else:
                     try:
@@ -77,6 +78,7 @@ class Keithley2602(InstrumentBase):
                         pass
             except Exception as e:
                 print(f'ERROR: While trying to open instrument at address {res}, got exception', e)
+        self.status = 'failed to open'
         return False
     def update(self, settings: dict):
         """Apply configuration using flat keys like 'smua.output' and 'smub.nplc'.
@@ -299,7 +301,8 @@ class Keithley2602(InstrumentBase):
 
         return f"""
     <h3>{type_name} <small>({iid})</small></h3>
-    <p>Status: <span class=\"status\">closed</span> IDN: <span class=\"idn\">-</span></p>
+    <p>STATUS: <span class=\"status\">{self.status}</span></p>
+    <p>IDN: <span class=\"idn\">{self.idn}</span></p>
     <div class=\"device-controls\">
       <button class=\"open\">Open</button>
       <button class=\"close\">Close</button>

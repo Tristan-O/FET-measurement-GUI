@@ -18,6 +18,7 @@ class InstrumentBase(ABC):
         self.settings = self.DEFAULT_SETTINGS.copy()
         self.inst = None
         self.delay = 0.02
+        self.status = 'closed'
     def get(self, key):
         '''Get a setting from the current settings dict.'''
         return self.settings.get(key, self.DEFAULT_SETTINGS.get(key))
@@ -33,6 +34,7 @@ class InstrumentBase(ABC):
             self.inst = None
         else:
             raise RuntimeError('Cannot close instrument. Instrument is not open!')
+        self.status = 'closed'
     def write(self, cmd:str):
         if self.inst is None:
             raise RuntimeError('Instrument not open')

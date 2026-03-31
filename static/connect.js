@@ -77,28 +77,68 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (e.type === 'number') payload[k] = parseFloat(e.value || 0);
             else payload[k] = e.value;
           });
-          try { await fetch(`/api/instrument/${id}/update`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }); }
-          catch (err) { console.warn('update failed', err); }
+          try { 
+            await fetch(`/api/instrument/${id}/update`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+          } catch (err) { 
+            console.warn('update failed', err); 
+          }
         });
       });
 
     } catch (e) { console.warn('setupCard error', e); }
 
     if (openBtn) openBtn.addEventListener('click', async ()=>{
-      try { const r = await fetch(`/api/instrument/${id}/open`, { method: 'POST' }); const j = await r.json(); if (r.ok) { if (statusEl) statusEl.textContent = j.status || 'opened'; if (idnEl) idnEl.textContent = j.idn || '-'; } else alert('Open failed: ' + (j.error || r.statusText)); } catch (e) { alert('Open error: ' + e); }
+      try { 
+        const r = await fetch(`/api/instrument/${id}/open`, { method: 'POST' });
+        const j = await r.json();
+        if (statusEl) statusEl.textContent = j.status;
+        if (r.ok) { 
+          if (idnEl) idnEl.textContent = j.idn || '-';
+        } else {
+          alert('Open failed: ' + (j.error || r.statusText));
+        }
+      } catch (e) { 
+        alert('Open error: ' + e);
+      }
     });
 
     if (closeBtn) closeBtn.addEventListener('click', async ()=>{
-      try { const r = await fetch(`/api/instrument/${id}/close`, { method: 'POST' }); const j = await r.json(); if (r.ok) { if (statusEl) statusEl.textContent = 'closed'; if (idnEl) idnEl.textContent = '-'; } else alert('Close failed'); } catch (e) { alert('Close error: ' + e); }
+      try { 
+        const r = await fetch(`/api/instrument/${id}/close`, { method: 'POST' });
+        const j = await r.json();
+        if (statusEl) statusEl.textContent = j.status;
+        if (!r.ok) {
+          alert('Close failed');
+        }
+      } catch (e) {
+        alert('Close error: ' + e); 
+      }
     });
 
     if (removeBtn) removeBtn.addEventListener('click', async ()=>{
       if (!confirm('Remove device?')) return;
-      try { const r = await fetch(`/api/instrument/${id}`, { method: 'DELETE' }); if (r.ok) cardEl.remove(); else alert('Remove failed'); } catch (e) { alert('Remove error: ' + e); }
+      try { 
+        const r = await fetch(`/api/instrument/${id}`, { method: 'DELETE' });
+        if (r.ok) cardEl.remove();
+        else alert('Remove failed');
+      } catch (e) { alert('Remove error: ' + e);
+
+       }
     });
 
     if (forceBtn) forceBtn.addEventListener('click', async ()=>{
-      try { const r = await fetch(`/api/instrument/${id}/force_update`, { method: 'POST' }); const j = await r.json(); if (r.ok) { const meas = j.meas || {}; if (plotDiv) plotDiv.textContent = JSON.stringify(meas); } else alert('Force failed'); } catch (e) { alert('Force error: ' + e); }
+      try { 
+        const r = await fetch(`/api/instrument/${id}/force_update`, { method: 'POST' });
+        const j = await r.json();
+        if (r.ok) { 
+          const meas = j.meas || {};
+          if (plotDiv) plotDiv.textContent = JSON.stringify(meas);
+        } else {
+          alert('Force failed'); 
+        }
+      } catch (e) { 
+        alert('Force error: ' + e);
+      }
     });
   }
 

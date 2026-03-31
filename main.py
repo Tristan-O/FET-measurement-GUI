@@ -460,7 +460,7 @@ def api_instrument_add():
 def api_instruments_list():
     out = []
     for iid, entry in state.instruments.items():
-        inst = entry.get('obj') if isinstance(entry, dict) else entry
+        inst = entry.get('obj')
         tname = getattr(inst, '__class__', type(inst)).__name__
         out.append({'id': iid, 'type': tname})
     return jsonify({'instruments': out})
@@ -472,12 +472,9 @@ def api_instrument_card(iid):
     if not entry:
         return jsonify({'error': 'not found'}), 404
     inst = entry.get('obj') if isinstance(entry, dict) else entry
-    type_name = None
-    # try to infer a type name
-    if isinstance(entry, dict) and entry.get('smus') is not None:
-        type_name = getattr(inst, '__class__', type(inst)).__name__
+    tname = getattr(inst, '__class__', type(inst)).__name__
     try:
-        html = inst.card_html(iid, type_name=type_name)
+        html = inst.card_html(iid, type_name=tname)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     return jsonify({'html': html})
@@ -494,22 +491,22 @@ def api_instrument_open(iid):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     if ok:
-        return jsonify({'ok': True, 'status': 'opened', 'idn': getattr(inst, 'idn', None)})
+        return jsonify({'ok': True, 'status': inst.status, 'idn': getattr(inst, 'idn', None)})
     else:
-        return jsonify({'ok': False, 'status': 'open failed'}), 500
+        return jsonify({'ok': False, 'status': inst.status}), 500
 
 
 @app.route('/api/instrument/<iid>/close', methods=['POST'])
 def api_instrument_close(iid):
     entry = state.instruments.get(iid)
     if not entry:
-        return jsonify({'error': 'not found'}), 404
+        return jsonify({'error': 'not found', 'status':'404'}), 404
     inst = entry['obj'] if isinstance(entry, dict) else entry
     try:
         inst.close()
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    return jsonify({'ok': True})
+        return jsonify({'error': str(e), 'status':inst.status}), 500
+    return jsonify({'ok': True, 'status':inst.status})
 
 
 @app.route('/api/instrument/<iid>', methods=['DELETE'])
