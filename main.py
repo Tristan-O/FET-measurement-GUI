@@ -17,6 +17,7 @@ try:
 except Exception:
     pyvisa = None
 from Keithley2602 import Keithley2602
+from Keithley6430 import Keithley6430
 import copy
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -442,9 +443,14 @@ def api_instrument_add():
     typ = j.get('type')
     if typ == 'keithley2602' or typ == 'keithley':
         k = Keithley2602()
-        iid = f'keithley{len(state.instruments)+1}'
+        iid = f'keithley2602_{len(state.instruments)+1}'
         state.instruments[iid] = {'obj': k}
         return jsonify({'ok': True, 'id': iid, 'type': 'keithley2602'})
+    if typ == 'keithley6430' or typ == '6430':
+        k = Keithley6430()
+        iid = f'keithley6430_{len(state.instruments)+1}'
+        state.instruments[iid] = {'obj': k}
+        return jsonify({'ok': True, 'id': iid, 'type': 'keithley6430'})
     return jsonify({'error': 'unknown type'}), 400
 
 
