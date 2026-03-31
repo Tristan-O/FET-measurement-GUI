@@ -6,6 +6,8 @@ class Sweep(list):
         while len(self) > 0:
             yield self[i]
             i = (i+1)%len(self)
+    def __getitem__(self, idx:int):
+        return super().__getitem__(idx%len(self))
     @classmethod
     def triangle(cls, amp, off, step):
         raise NotImplementedError()

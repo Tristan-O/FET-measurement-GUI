@@ -54,8 +54,8 @@ class PausableThread(threading.Thread):
         self.kwargs = kwargs if kwargs is not None else {}
     def run(self):
         i = 0
-        if self.t0 is None:
-            self.t0 = time.time() 
+        if PausableThread.t0 is None:
+            PausableThread.t0 = time.time() 
         while True:
             # The thread waits here if the event is cleared
             self._pause_event.wait() 
@@ -66,7 +66,7 @@ class PausableThread(threading.Thread):
                 break
 
             # --- Thread's work goes here ---
-            self.target(*self.args, **self.kwargs, iter_num=i, t0=self.t0)
+            self.target(*self.args, **self.kwargs, iter_num=i, t0=PausableThread.t0)
             i += 1
     def pause(self, pause=None):
         """Pause the thread's execution."""
@@ -278,6 +278,8 @@ def api_measure_start():
         print(e)
         return jsonify({'error': str(e)}), 500
     state.measure_thread = PausableThread(measure)
+    for _,instr in state.instruments.items():
+        instr['obj'].start()
     state.measure_thread.start()
     return jsonify({'ok': True})
 

@@ -40,7 +40,7 @@ class Keithley2602(InstrumentBase):
         self.rm = None
         self.idn = None
         self.sweeps = [Sweep([0]), Sweep([0])] # A, B
-        self._sweeps_iter = [None,None]
+        self._sweep_idx = [0,0]
     def get(self, smux:str, key:str|None=None):
         '''Get a setting from the current settings dict.'''
         if key is not None:
@@ -336,12 +336,12 @@ class Keithley2602(InstrumentBase):
     <div class=\"device-plot\" style=\"height:240px\"></div>
     """
     def next(self):
-        for i in (0,1):
-            if self._sweeps_iter[i] is None:
-                self._sweeps_iter[i] = iter(self.sweeps[i])
         for i, smux in enumerate(('smua', 'smub')):
             if self.settings[f'{smux}.output']:
                 src = self.settings[f"{smux}.source"][0].lower()
-                val = next(self._sweeps_iter[i])
+                val = self.sweeps[i][self._sweep_idx[i]]
                 self.write(f'{smux}.source.level{src} = {val:0.6e}')
+            self._sweep_idx[i] += 1
         return self.measure()
+    def start(self):
+        self._sweep_idx = [0,0]

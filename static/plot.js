@@ -148,7 +148,7 @@ function setupStream() {
           const yVal = row[yName];
           if (yVal === undefined) return;
           const update = { x: [[ xVal ]], y: [[ yVal ]] };
-          try { Plotly.extendTraces(plot.divId, update, [traceIndex], 1000); }
+          try { Plotly.extendTraces(plot.divId, update, [traceIndex]); }
           catch (e) { console.warn('extendTraces failed', e); }
         });
       });
