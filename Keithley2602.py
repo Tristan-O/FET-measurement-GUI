@@ -341,7 +341,6 @@ class Keithley2602(InstrumentBase):
                 <label>Level: <input id="{iid}-smuB-src-level" type="text" data-key="smub.level" value="{0}"/></label>
             </div>
     </div>
-    <div class=\"device-plot\" style=\"height:240px\"></div>
     """
     def next(self):
         for i, smux in enumerate(('smua', 'smub')):
