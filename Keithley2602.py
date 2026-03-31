@@ -178,6 +178,11 @@ class Keithley2602(InstrumentBase):
                 print('ERROR: While trying to set output',e)
 
         return True
+    def query(self, q, output_type):
+        res = super().query(q, output_type)
+        # print( super().query('print(errorqueue.next())') )
+        # print( super().query('print(errorqueue.clear())') )
+        return res
     def measure(self):
         """Return a flat dictionary of measurements.
 
@@ -195,10 +200,12 @@ class Keithley2602(InstrumentBase):
                 print(f'Unable to get {key} using command {cmd}')
 
         for smux in ('smua', 'smub'):
-                _get(f'print({smux}.measure.v())', f'{smux}.v')
-                _get(f'print({smux}.measure.i())', f'{smux}.i')
-                _get(f'print({smux}.source.levelv)', f'{smux}.setv')
-                _get(f'print({smux}.source.leveli)', f'{smux}.seti')
+                _get(f'printnumber({smux}.measure.v())', f'{smux}.v')
+                _get(f'printnumber({smux}.measure.i())', f'{smux}.i')
+                if self.settings[f'{smux}.source'] == 'voltage':
+                    _get(f'printnumber({smux}.source.levelv)', f'{smux}.setv')
+                else:
+                    _get(f'printnumber({smux}.source.leveli)', f'{smux}.seti')
         return out
     def card_html(self, iid: str, type_name: str = 'keithley2602') -> str:
         """Return HTML markup for a Keithley 2602 device card, including SMU controls.
@@ -336,5 +343,5 @@ class Keithley2602(InstrumentBase):
             if self.settings[f'{smux}.output']:
                 src = self.settings[f"{smux}.source"][0].lower()
                 val = next(self._sweeps_iter[i])
-                self.write(f'{smux}.level{src} = {val:0.6e}')
+                self.write(f'{smux}.source.level{src} = {val:0.6e}')
         return self.measure()

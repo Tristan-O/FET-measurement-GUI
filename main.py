@@ -6,6 +6,7 @@ import csv
 import math
 import time
 import pandas as pd
+import numpy as np
 import math
 from datetime import datetime
 import json
@@ -290,8 +291,16 @@ def stream():
 @app.route('/api/measure/start', methods=['POST'])
 def api_measure_start():
     def measure(state=state, iter_num=0, t0=None):
+        res = {'ts':time.time()-t0}
         for k,instr in state.instruments.items():
-            print( time.time()-t0, k, '\t', instr['obj'].next() )
+            res_ = instr['obj'].next()
+            res_ = {f'{k}.{k2}':e2 for k2,e2 in res_.items()}
+            res.update(res_)
+        if iter_num == 0:
+            for k in res:
+                if k not in state.stream_df.columns:
+                    state.stream_df[k] = np.nan
+        state.stream_df.loc[len(state.stream_df)] = res
     if state.measure_thread is not None:
         e = 'ERROR: Measurement thread cannot start, as it was never stopped!'
         print(e)
@@ -340,7 +349,32 @@ def api_data():
 @app.route("/api/full", methods=["GET"])
 def api_full():
     # Return full uploads including arrays (may be large)
-    return jsonify({"uploads": state.uploads})
+    # Also include in-memory streaming data (`state.stream_df`) as a synthetic upload
+    uploads = list(state.uploads)
+    try:
+        if not state.stream_df.empty and len(state.stream_df.columns) > 0:
+            # create columns list from DataFrame
+            cols = []
+            for c in state.stream_df.columns:
+                # convert series to plain Python list, preserving NaN/NA as null
+                try:
+                    arr = [ (None if pd.isna(x) else (x if not hasattr(x, 'item') else x.item())) for x in state.stream_df[c].tolist() ]
+                except Exception:
+                    arr = [ (None if (x is None) else x) for x in state.stream_df[c].tolist() ]
+                cols.append({"name": c, "original_name": c, "array": arr, "header_info": {}})
+            stream_upload = {
+                "id": 0,
+                "filename": "",
+                "uploaded_at": None,
+                "raw_text": None,
+                "rows_count": len(state.stream_df),
+                "columns": cols
+            }
+            uploads = [stream_upload] + uploads
+    except Exception:
+        # be defensive: if conversion fails, just return uploads
+        pass
+    return jsonify({"uploads": uploads})
 
 
 @app.route("/plot")
