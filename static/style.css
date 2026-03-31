@@ -58,9 +58,9 @@ th {
 .tmp-dialog { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); background:#fff; padding:12px; border:1px solid #ddd; box-shadow:0 6px 18px rgba(0,0,0,0.08) }
 
 /* SMU controls layout */
-.smu-grid { display:flex; gap:18px; margin-top:12px }
-.smu-col { flex:1; border:1px solid #eee; padding:10px; border-radius:6px }
-.smu-col h3 { margin-top:0 }
-.smu-col label { display:flex; justify-content:space-between; gap:8px; margin:6px 0 }
-.smu-row { display:flex; align-items:center; gap:8px }
-.smu-col select, .smu-col input[type=number] { min-width:120px }
+.grid { display:flex; gap:18px; margin-top:12px }
+.col { flex:1; border:1px solid #eee; padding:10px; border-radius:6px }
+.col h4 { margin-top:0 }
+.col label { display:flex; justify-content:space-between; gap:8px; margin:6px 0 }
+.row { display:flex; align-items:center; gap:8px }
+.col select, .col input[type=number] { min-width:120px }

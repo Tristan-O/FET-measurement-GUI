@@ -313,8 +313,8 @@ class Keithley2602(InstrumentBase):
       <button class=\"close\">Close</button>
       <button class=\"remove\">Remove</button>
     </div>
-    <div class=\"smu-grid\">
-            <div class="smu-col" id="{iid}-smu-A">
+    <div class=\"grid\">
+            <div class="col" id="{iid}-smu-A">
                 <h4>SMU A</h4>
                 <label>Output: <input type="checkbox" id="{iid}-smuA-output" data-key="smua.output"{checked_a} /></label>
                 <label>NPLC: <select id="{iid}-smuA-nplc" data-key="smua.nplc">{nplc_options_A}</select></label>
@@ -327,7 +327,7 @@ class Keithley2602(InstrumentBase):
                 <label>Measure Current Range: <select id="{iid}-smuA-meas-current-range" data-key="smua.meas_current_range">{curr_options_A}</select></label>
                 <label>Level: <input id="{iid}-smuA-src-level" type="text" data-key="smua.level" value="{0}"/></label>
             </div>
-            <div class="smu-col" id="{iid}-smu-B">
+            <div class="col" id="{iid}-smu-B">
                 <h4>SMU B</h4>
                 <label>Output: <input type="checkbox" id="{iid}-smuB-output" data-key="smub.output"{checked_b} /></label>
                 <label>NPLC: <select id="{iid}-smuB-nplc" data-key="smub.nplc">{nplc_options_B}</select></label>

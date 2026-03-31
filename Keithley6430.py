@@ -37,14 +37,12 @@ class Keithley6430(InstrumentBase):
         self._io_queue = pyqueue.Queue()
         self._io_thread = None
         self._io_stop = threading.Event()
-
     def _start_io_worker(self):
         if self._io_thread is not None and self._io_thread.is_alive():
             return
         self._io_stop.clear()
         self._io_thread = threading.Thread(target=self._io_worker, daemon=True)
         self._io_thread.start()
-
     def _stop_io_worker(self):
         t = self._io_thread
         if t is None:
@@ -53,7 +51,6 @@ class Keithley6430(InstrumentBase):
         self._io_queue.put(None)
         t.join(timeout=2)
         self._io_thread = None
-
     def _io_worker(self):
         while not self._io_stop.is_set():
             item = self._io_queue.get()
@@ -86,7 +83,6 @@ class Keithley6430(InstrumentBase):
             finally:
                 done.set()
                 self._io_queue.task_done()
-
     def _enqueue_io(self, op: str, cmd: str, output_type=str):
         if self.inst is None:
             raise RuntimeError('Instrument not open')
@@ -151,8 +147,8 @@ class Keithley6430(InstrumentBase):
                     self.idn = idn
                     self._start_io_worker()
                     # Baseline SCPI setup for deterministic reads.
-                    self.write("*RST")
                     self.write("*CLS")
+                    self.write("*RST")
                     self.write(":FORM:ELEM VOLT,CURR")
                     self.update(self.settings)
                     self.status = 'open'
@@ -230,6 +226,13 @@ class Keithley6430(InstrumentBase):
             print("ERROR: While trying to set NPLC", e)
 
         try:
+            meas_vrange = self._parse_eng_value(self.get("meas_voltage_range"))
+            meas_irange = self._parse_eng_value(self.get("meas_current_range"))
+            if meas_vrange and source != 'voltage':
+                self.write(f":sense:voltage:range {meas_vrange:.6e}")
+            if meas_irange and source != 'current':
+                self.write(f":sense:current:range {meas_irange:.6e}")
+
             # Compliance maps to opposite domain protection in SCPI.
             v_prot = self._parse_eng_value(self.get("src_voltage_limit"))
             i_prot = self._parse_eng_value(self.get("src_current_limit"))
@@ -242,18 +245,12 @@ class Keithley6430(InstrumentBase):
 
         try:
             src_vrange = self._parse_eng_value(self.get("src_voltage_range"))
-            meas_vrange = self._parse_eng_value(self.get("meas_voltage_range"))
             src_irange = self._parse_eng_value(self.get("src_current_range"))
-            meas_irange = self._parse_eng_value(self.get("meas_current_range"))
 
             if src_vrange:
                 self.write(f":source:voltage:range {src_vrange:.6e}")
-            if meas_vrange and source != 'voltage':
-                self.write(f":sense:voltage:range {meas_vrange:.6e}")
             if src_irange:
                 self.write(f":source:current:range {src_irange:.6e}")
-            if meas_irange and source != 'current':
-                self.write(f":sense:current:range {meas_irange:.6e}")
         except Exception as e:
             print("ERROR: While trying to set ranges", e)
 
@@ -326,21 +323,28 @@ class Keithley6430(InstrumentBase):
     <div class=\"device-controls\">
         <button class=\"open\">Open</button>
         <button class=\"close\">Close</button>
-              <button class=\"remove\">Remove</button>
-            </div>
-    <div class=\"smu-grid\">
-          <div class=\"smu-col\" id=\"{iid}-smu-A\">
-            <h4>SMU</h4>
+        <button class=\"remove\">Remove</button>
+    </div>
+    <div class=\"grid\">
+        <div class=\"col\" id=\"{iid}-sourcing\">
+            <h4>General Setup</h4>
             <label>Output: <input type=\"checkbox\" data-key=\"output\"{checked} /></label>
             <label>NPLC: <select data-key=\"nplc\">{nplc_options}</select></label>
             <label>Source: <select data-key=\"source\"><option value=\"current\"{' selected' if source == 'current' else ''}>Current</option><option value=\"voltage\"{' selected' if source == 'voltage' else ''}>Voltage</option></select></label>
-            <label>Source Voltage Range: <select data-key=\"src_voltage_range\">{_opts(volt_opts, self.get('src_voltage_range'))}</select></label>
-            <label>Source Voltage Limit: <input type=\"number\" step=\"any\" data-key=\"src_voltage_limit\" value=\"{'' if src_v_limit is None else src_v_limit}\"/></label>
-            <label>Source Current Range: <select data-key=\"src_current_range\">{_opts(curr_opts, self.get('src_current_range'))}</select></label>
-            <label>Source Current Limit: <input type=\"number\" step=\"any\" data-key=\"src_current_limit\" value=\"{'' if src_i_limit is None else src_i_limit}\"/></label>
-            <label>Measure Voltage Range: <select data-key=\"meas_voltage_range\">{_opts(volt_opts, self.get('meas_voltage_range'))}</select></label>
-            <label>Measure Current Range: <select data-key=\"meas_current_range\">{_opts(curr_opts, self.get('meas_current_range'))}</select></label>
             <label>Level: <input type=\"text\" data-key=\"level\" value=\"{0}\"/></label>
-          </div>
+        </div>
+        <div class=\"col\" id=\"{iid}-sourcing-voltage\">
+            <h4>Sourcing Voltage</h4>
+            <label>Source Range: <select data-key=\"src_voltage_range\">{_opts(volt_opts, self.get('src_voltage_range'))}</select></label>
+            <label>Compliance (A): <input type=\"number\" step=\"any\" data-key=\"src_current_limit\" value=\"{'' if src_i_limit is None else src_i_limit}\"/></label>
+            <label>Sense Range: <select data-key=\"meas_current_range\">{_opts(curr_opts, self.get('meas_current_range'))}</select></label>
+            <p>Compliance must be larger than sense range.</p>
+        </div>
+        <div class=\"col\" id=\"{iid}-sourcing-current\">
+            <h4>Sourcing Current</h4>
+            <label>Source Range: <select data-key=\"src_current_range\">{_opts(curr_opts, self.get('src_current_range'))}</select></label>
+            <label>Compliance (V): <input type=\"number\" step=\"any\" data-key=\"src_voltage_limit\" value=\"{'' if src_v_limit is None else src_v_limit}\"/></label>
+            <label>Sense Range: <select data-key=\"meas_voltage_range\">{_opts(volt_opts, self.get('meas_voltage_range'))}</select></label>
+        </div>
         </div>
     """
