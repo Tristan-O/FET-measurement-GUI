@@ -76,6 +76,8 @@ function addPlot() {
         <div class="control-row">
           <label><input type="checkbox" class="xlog" /> Log X</label>
           <label><input type="checkbox" class="ylog" /> Log Y</label>
+          <label>Start: <input type="text" class="slice-start" placeholder="" size="6" /></label>
+          <label>End: <input type="text" class="slice-end" placeholder="" size="6" /></label>
         </div>
         <div class="control-row">
           <button class="remove-plot">Remove</button>
@@ -98,13 +100,21 @@ function addPlot() {
     await fetchFull();
     const xKey = xsel.value;
     const yKeys = Array.from(ysel.selectedOptions).map(o=>o.value);
+    const startRaw = (container.querySelector('.slice-start')?.value || '').trim();
+    const endRaw = (container.querySelector('.slice-end')?.value || '').trim();
+    const sliceStart = startRaw === '' ? undefined : parseInt(startRaw, 10);
+    const sliceEnd = endRaw === '' ? undefined : parseInt(endRaw, 10);
     const traces = [];
     const xset = xKey ? getDatasetByKey(xKey) : null;
     yKeys.forEach(yk => {
       const yset = getDatasetByKey(yk);
       if (!yset) return;
-      const xarr = xset ? (xset.array || []) : (yset.array || []).map((_,i)=>i);
-      traces.push({ x: xarr, y: (yset.array || []), name: `${yset.filename}:${yset.name}` });
+      const yBase = (yset.array || []);
+      const xBase = xset ? (xset.array || []) : yBase.map((_, i) => i);
+      const n = Math.min(xBase.length, yBase.length);
+      const xSliced = xBase.slice(0, n).slice(sliceStart, sliceEnd);
+      const ySliced = yBase.slice(0, n).slice(sliceStart, sliceEnd);
+      traces.push({ x: xSliced, y: ySliced, name: `${yset.filename}:${yset.name}` });
     });
     const xlog = container.querySelector('.xlog').checked;
     const ylog = container.querySelector('.ylog').checked;
@@ -126,6 +136,10 @@ function addPlot() {
   const ylog = container.querySelector('.ylog');
   if (xlog) xlog.addEventListener('change', updatePlot);
   if (ylog) ylog.addEventListener('change', updatePlot);
+  const sliceStartInput = container.querySelector('.slice-start');
+  const sliceEndInput = container.querySelector('.slice-end');
+  if (sliceStartInput) sliceStartInput.addEventListener('change', updatePlot);
+  if (sliceEndInput) sliceEndInput.addEventListener('change', updatePlot);
   // (Add Y removed - multi-select already available)
 
   container.querySelector('.remove-plot').addEventListener('click', ()=>{
