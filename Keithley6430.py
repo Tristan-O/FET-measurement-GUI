@@ -19,10 +19,10 @@ class Keithley6430(InstrumentBase):
         "source": "voltage",
         "src_voltage_range": 0.2,
         "src_voltage_limit": 0.2,
-        "src_current_range": 1e-8,
-        "src_current_limit": 1e-8,
+        "src_current_range": 1e-12,
+        "src_current_limit": 1e-12,
         "meas_voltage_range": 2,
-        "meas_current_range": 1e-8
+        "meas_current_range": 1e-12
     }
     ADDRESSES_IN_USE:list[str] = []
 
@@ -107,7 +107,9 @@ class Keithley6430(InstrumentBase):
         return res
     def write(self, cmd:str):
         super().write(cmd)
-        # print(cmd, self.query(':SYST:ERR?'))
+        err = self.query(':SYST:ERR?')
+        if 'no error' not in err.lower():
+            print(f'{err} (from {cmd})')
     def update(self, settings: dict):
         allowed_keys = (
             "output",
@@ -158,6 +160,17 @@ class Keithley6430(InstrumentBase):
             print("ERROR: While trying to set NPLC", e)
 
         try:
+            # Compliance maps to opposite domain protection in SCPI.
+            v_prot = self._parse_eng_value(self.get("src_voltage_limit"))
+            i_prot = self._parse_eng_value(self.get("src_current_limit"))
+            if v_prot is not None and source != 'voltage':
+                self.write(f":sense:voltage:protection {v_prot:.6e}")
+            if i_prot is not None and source != 'current':
+                self.write(f":sense:current:protection {i_prot:.6e}")
+        except Exception as e:
+            print("ERROR: While trying to set compliance", e)
+
+        try:
             src_vrange = self._parse_eng_value(self.get("src_voltage_range"))
             meas_vrange = self._parse_eng_value(self.get("meas_voltage_range"))
             src_irange = self._parse_eng_value(self.get("src_current_range"))
@@ -173,17 +186,6 @@ class Keithley6430(InstrumentBase):
                 self.write(f":sense:current:range {meas_irange:.6e}")
         except Exception as e:
             print("ERROR: While trying to set ranges", e)
-
-        try:
-            # Compliance maps to opposite domain protection in SCPI.
-            v_prot = self._parse_eng_value(self.get("src_voltage_limit"))
-            i_prot = self._parse_eng_value(self.get("src_current_limit"))
-            if v_prot is not None and source != 'voltage':
-                self.write(f":sense:voltage:protection {v_prot:.6e}")
-            if i_prot is not None and source != 'current':
-                self.write(f":sense:current:protection {i_prot:.6e}")
-        except Exception as e:
-            print("ERROR: While trying to set compliance", e)
 
         try:
             self.write(f":OUTP {'ON' if out_flag else 'OFF'}")
@@ -238,7 +240,7 @@ class Keithley6430(InstrumentBase):
         )
 
         volt_opts = ["±200mV", "±2V", "±20V"]
-        curr_opts = ["±1nA", "±10nA", "±100nA", "±1uA", "±10uA", "±100uA", "±1mA", "±10mA"]
+        curr_opts = ["±1pA", "±10pA", "±100pA", "±1nA", "±10nA", "±100nA", "±1uA", "±10uA", "±100uA", "±1mA", "±10mA"]
 
         def _opts(options_list, current):
             cur = str(current)
