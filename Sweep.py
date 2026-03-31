@@ -12,7 +12,7 @@ class Sweep(list):
         return Sweep([])
     @classmethod
     def from_string(cls, s:str, output_type=float):
-        return Sweep([output_type(x) for x in re.split(r'[,\\s;]+', s) if x != ''])
+        return Sweep([output_type(x) for x in re.split(r'[,\s;]+', s) if x != ''])
 
 if __name__ == '__main__':
     s = Sweep.from_string('1,2,3,')
