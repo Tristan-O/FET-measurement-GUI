@@ -1,6 +1,15 @@
 let DATASETS = []; // {key, upload_id, filename, name, array}
 let plotCount = 0;
 const PLOTS = {}; // id -> {divId, traceMap, xKey, lastIdx}
+let STREAM_ES = null;
+
+function restartStream() {
+  if (STREAM_ES) {
+    try { STREAM_ES.close(); } catch (e) { /* ignore */ }
+    STREAM_ES = null;
+  }
+  STREAM_ES = setupStream();
+}
 
 async function fetchFull() {
   const r = await fetch('/api/full');
@@ -17,6 +26,10 @@ async function fetchFull() {
       });
     });
   });
+
+  // Requirement: whenever we pull fresh data from /api/full,
+  // restart the live stream connection.
+  restartStream();
 }
 
 function makeSelect(options, multiple=false) {
@@ -165,8 +178,6 @@ async function init() {
   // Add first plot
   addPlot();
   document.getElementById('add-plot').addEventListener('click', addPlot);
-  // Start SSE stream for live updates
-  setupStream();
   // plot page no longer manages the live stream
 }
 

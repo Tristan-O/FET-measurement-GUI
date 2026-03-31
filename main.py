@@ -266,7 +266,7 @@ def api_upload():
 @app.route('/api/measure/stream')
 def stream():
     def gen():
-        last = 0
+        last = len(state.stream_df)
         while True:
             try:
                 ln = len(state.stream_df)
@@ -286,6 +286,7 @@ def stream():
                                     clean[k] = v
                             except Exception:
                                 clean[k] = v
+                        clean['index'] = i
                         yield f"data: {json.dumps(clean)}\n\n"
                     last = ln
                 time.sleep(0.2)
