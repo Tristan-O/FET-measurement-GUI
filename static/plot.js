@@ -1,5 +1,6 @@
 let DATASETS = []; // {key, upload_id, filename, name, array}
 let plotCount = 0;
+const PLOTS = {}; // id -> {divId, traceMap, xKey, lastIdx}
 
 async function fetchFull() {
   const r = await fetch('/api/full');
@@ -80,7 +81,8 @@ function addPlot() {
   container.querySelector('.xsel').appendChild(xsel);
   container.querySelector('.ysel').appendChild(ysel);
 
-  function updatePlot() {
+  async function updatePlot() {
+    await fetchFull();
     const xKey = xsel.value;
     const yKeys = Array.from(ysel.selectedOptions).map(o=>o.value);
     const traces = [];
@@ -88,13 +90,21 @@ function addPlot() {
     yKeys.forEach(yk => {
       const yset = getDatasetByKey(yk);
       if (!yset) return;
-      const xarr = xset ? xset.array : yset.array.map((_,i)=>i);
-      traces.push({ x: xarr, y: yset.array, name: `${yset.filename}:${yset.name}` });
+      const xarr = xset ? (xset.array || []) : (yset.array || []).map((_,i)=>i);
+      traces.push({ x: xarr, y: (yset.array || []), name: `${yset.filename}:${yset.name}` });
     });
     const xlog = container.querySelector('.xlog').checked;
     const ylog = container.querySelector('.ylog').checked;
     const layout = { margin:{t:30}, xaxis:{type: xlog ? 'log' : 'linear'}, yaxis:{type: ylog ? 'log' : 'linear'} };
     Plotly.newPlot(id, traces, layout);
+
+    // Register plot for live updates: map datasetKey -> trace index
+    const traceMap = {};
+    for (let i = 0; i < yKeys.length; ++i) traceMap[yKeys[i]] = i;
+    // determine current stream length to avoid duplicating existing points
+    let lastIdx = 0;
+    if (xset && xset.upload_id === 0 && Array.isArray(xset.array)) lastIdx = xset.array.length;
+    PLOTS[id] = { divId: id, traceMap: traceMap, xKey: xKey, lastIdx: lastIdx };
   }
 
   xsel.addEventListener('change', updatePlot);
@@ -106,6 +116,8 @@ function addPlot() {
   // (Add Y removed - multi-select already available)
 
   container.querySelector('.remove-plot').addEventListener('click', ()=>{
+    // remove plot registry and DOM
+    delete PLOTS[id];
     container.remove();
   });
 
@@ -117,6 +129,35 @@ function addPlot() {
   updatePlot();
 }
 
+// SSE handler for live stream updates
+function setupStream() {
+  if (typeof(EventSource) === 'undefined') return;
+  const es = new EventSource('/api/measure/stream');
+  es.onmessage = (evt) => {
+    try {
+      const row = JSON.parse(evt.data);
+      // row is a single sample with flat keys like {ts, A_v, A_i, B_v, B_i}
+      Object.values(PLOTS).forEach(plot => {
+        const xKey = plot.xKey;
+        if (!xKey || !xKey.startsWith('0||')) return; // require stream X
+        const xName = xKey.split('||').slice(1).join('||');
+        const xVal = row[xName];
+        Object.entries(plot.traceMap).forEach(([dkey, traceIndex]) => {
+          if (!dkey.startsWith('0||')) return;
+          const yName = dkey.split('||').slice(1).join('||');
+          const yVal = row[yName];
+          if (yVal === undefined) return;
+          const update = { x: [[ xVal ]], y: [[ yVal ]] };
+          try { Plotly.extendTraces(plot.divId, update, [traceIndex], 1000); }
+          catch (e) { console.warn('extendTraces failed', e); }
+        });
+      });
+    } catch (e) { console.warn('stream parse error', e); }
+  };
+  es.onerror = (e) => { /* keep connection open */ };
+  return es;
+}
+
 // Streaming moved to the acquire page.
 
 async function init() {
@@ -124,6 +165,8 @@ async function init() {
   // Add first plot
   addPlot();
   document.getElementById('add-plot').addEventListener('click', addPlot);
+  // Start SSE stream for live updates
+  setupStream();
   // plot page no longer manages the live stream
 }
 

@@ -41,6 +41,7 @@ class State:
 state = State()
 
 class PausableThread(threading.Thread):
+    t0 = None
     def __init__(self, target, args=(), kwargs=None):
         super().__init__()
         self._pause_event = threading.Event()
@@ -52,7 +53,8 @@ class PausableThread(threading.Thread):
         self.kwargs = kwargs if kwargs is not None else {}
     def run(self):
         i = 0
-        t0 = time.time()
+        if self.t0 is None:
+            self.t0 = time.time() 
         while True:
             # The thread waits here if the event is cleared
             self._pause_event.wait() 
@@ -63,7 +65,7 @@ class PausableThread(threading.Thread):
                 break
 
             # --- Thread's work goes here ---
-            self.target(*self.args, **self.kwargs, iter_num=i, t0=t0)
+            self.target(*self.args, **self.kwargs, iter_num=i, t0=self.t0)
             i += 1
     def pause(self, pause=None):
         """Pause the thread's execution."""
@@ -80,10 +82,6 @@ class PausableThread(threading.Thread):
     def stop(self):
         self._stop_event.clear()
         self._pause_event.set()
-
-
-# global start time for streaming; set when stream begins first time
-t0 = None
 
 
 @app.route("/")
@@ -231,60 +229,33 @@ def api_upload():
 @app.route('/api/measure/stream')
 def stream():
     def gen():
+        last = 0
         while True:
-            # respect streaming flag; when paused, keep connection open but do not emit data
-            if not state.streaming:
-                time.sleep(0.5)
-                continue
-            if t0 is None:
-                t0 = time.time()
-            payload = {'ts': time.time() - t0, 'data': {'a': {'v': None, 'i': None}, 'b': {'v': None, 'i': None}}}
-            a_v = a_i = b_v = b_i = None
-            if state.instruments:
-                # pick the first instrument in the dict
-                inst_entry = next(iter(state.instruments.values()))
-                inst_obj = inst_entry['obj'] if isinstance(inst_entry, dict) else inst_entry
-                inst_smus = inst_entry.get('smus') if isinstance(inst_entry, dict) else None
-                # get a measurement dict from the instrument
-                try:
-                    meas = inst_obj.measure() or {}
-                except Exception:
-                    meas = {'A_v': None, 'A_i': None, 'B_v': None, 'B_i': None}
-                # Only include values for SMUs whose output is ON (per-instrument if available)
-                for k in ('A', 'B'):
-                    cfg = (inst_smus.get(k) if inst_smus and k in inst_smus else state.smus.get(k, {}))
-                    key_v = f"{k}_v"
-                    key_i = f"{k}_i"
-                    if not cfg.get('output'):
-                        payload['data'][k.lower()]['v'] = None
-                        payload['data'][k.lower()]['i'] = None
-                        continue
-                    vv = meas.get(key_v)
-                    ii = meas.get(key_i)
-                    payload['data'][k.lower()]['v'] = vv
-                    payload['data'][k.lower()]['i'] = ii
-                a_v = payload['data']['a'].get('v')
-                a_i = payload['data']['a'].get('i')
-                b_v = payload['data']['b'].get('v')
-                b_i = payload['data']['b'].get('i')
-            else:
-                payload['error'] = 'no instrument'
-
-            # Append the sampled row to the in-memory DataFrame
             try:
-                # ensure DataFrame has the expected columns, add if necessary
-                cols = ['ts', 'A_v', 'A_i', 'B_v', 'B_i']
-                for c in cols:
-                    if c not in state.stream_df.columns:
-                        state.stream_df[c] = pd.NA
-                row = { 'ts': payload['ts'], 'A_v': a_v, 'A_i': a_i, 'B_v': b_v, 'B_i': b_i }
-                state.stream_df = pd.concat([state.stream_df, pd.DataFrame([row])], ignore_index=True)
+                ln = len(state.stream_df)
+                if ln > last:
+                    # yield new rows one by one as SSE
+                    for i in range(last, ln):
+                        row = state.stream_df.iloc[i].to_dict()
+                        # convert pandas NA to None / python scalars
+                        clean = {}
+                        for k, v in row.items():
+                            try:
+                                if pd.isna(v):
+                                    clean[k] = None
+                                elif hasattr(v, 'item'):
+                                    clean[k] = v.item()
+                                else:
+                                    clean[k] = v
+                            except Exception:
+                                clean[k] = v
+                        yield f"data: {json.dumps(clean)}\n\n"
+                    last = ln
+                time.sleep(0.2)
+            except GeneratorExit:
+                break
             except Exception:
-                # be defensive: if append fails, continue without crashing the generator
-                pass
-
-            yield f"data: {json.dumps(payload)}\n\n"
-            time.sleep(0.5)
+                time.sleep(0.5)
     return Response(stream_with_context(gen()), mimetype='text/event-stream')
 
 
