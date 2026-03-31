@@ -1,6 +1,6 @@
 let DATASETS = []; // {key, upload_id, filename, name, array}
 let plotCount = 0;
-const PLOTS = {}; // id -> {divId, traceMap, xKey, lastIdx}
+const PLOTS = {}; // id -> {divId, traceMap, xKey, lastIdx, refreshFn}
 let STREAM_ES = null;
 
 function restartStream() {
@@ -57,6 +57,25 @@ function getDatasetByKey(key) {
   return DATASETS.find(d=>d.upload_id===uid && d.name===name);
 }
 
+function appendStreamRowToDatasets(row) {
+  Object.entries(row || {}).forEach(([name, value]) => {
+    let ds = DATASETS.find(d => d.upload_id === 0 && d.name === name);
+    if (!ds) {
+      ds = { upload_id: 0, filename: '', name: name, array: [] };
+      DATASETS.push(ds);
+    }
+    if (!Array.isArray(ds.array)) ds.array = [];
+    ds.array.push(value);
+  });
+}
+
+function parseSliceIndex(raw) {
+  const s = (raw || '').trim();
+  if (s === '') return undefined;
+  const n = parseInt(s, 10);
+  return Number.isNaN(n) ? undefined : n;
+}
+
 function addPlot() {
   plotCount += 1;
   const id = `plot_${plotCount}`;
@@ -96,14 +115,14 @@ function addPlot() {
   container.querySelector('.xsel').appendChild(xsel);
   container.querySelector('.ysel').appendChild(ysel);
 
-  async function updatePlot() {
-    await fetchFull();
+  async function updatePlot(refreshFromServer=true) {
+    if (refreshFromServer) await fetchFull();
     const xKey = xsel.value;
     const yKeys = Array.from(ysel.selectedOptions).map(o=>o.value);
-    const startRaw = (container.querySelector('.slice-start')?.value || '').trim();
-    const endRaw = (container.querySelector('.slice-end')?.value || '').trim();
-    const sliceStart = startRaw === '' ? undefined : parseInt(startRaw, 10);
-    const sliceEnd = endRaw === '' ? undefined : parseInt(endRaw, 10);
+    const startRaw = container.querySelector('.slice-start')?.value || '';
+    const endRaw = container.querySelector('.slice-end')?.value || '';
+    const sliceStart = parseSliceIndex(startRaw);
+    const sliceEnd = parseSliceIndex(endRaw);
     const traces = [];
     const xset = xKey ? getDatasetByKey(xKey) : null;
     yKeys.forEach(yk => {
@@ -127,7 +146,7 @@ function addPlot() {
     // determine current stream length to avoid duplicating existing points
     let lastIdx = 0;
     if (xset && xset.upload_id === 0 && Array.isArray(xset.array)) lastIdx = xset.array.length;
-    PLOTS[id] = { divId: id, traceMap: traceMap, xKey: xKey, lastIdx: lastIdx };
+    PLOTS[id] = { divId: id, traceMap: traceMap, xKey: xKey, lastIdx: lastIdx, refreshFn: updatePlot };
   }
 
   xsel.addEventListener('change', updatePlot);
@@ -163,21 +182,15 @@ function setupStream() {
   es.onmessage = (evt) => {
     try {
       const row = JSON.parse(evt.data);
-      // row is a single sample with flat keys like {ts, A_v, A_i, B_v, B_i}
+      // Keep stream dataset arrays current, then redraw affected plots.
+      appendStreamRowToDatasets(row);
       Object.values(PLOTS).forEach(plot => {
-        const xKey = plot.xKey;
-        if (!xKey || !xKey.startsWith('0||')) return; // require stream X
-        const xName = xKey.split('||').slice(1).join('||');
-        const xVal = row[xName];
-        Object.entries(plot.traceMap).forEach(([dkey, traceIndex]) => {
-          if (!dkey.startsWith('0||')) return;
-          const yName = dkey.split('||').slice(1).join('||');
-          const yVal = row[yName];
-          if (yVal === undefined) return;
-          const update = { x: [[ xVal ]], y: [[ yVal ]] };
-          try { Plotly.extendTraces(plot.divId, update, [traceIndex]); }
-          catch (e) { console.warn('extendTraces failed', e); }
-        });
+        const usesStreamX = !!(plot.xKey && plot.xKey.startsWith('0||'));
+        const usesStreamY = Object.keys(plot.traceMap || {}).some(k => k.startsWith('0||'));
+        if (!usesStreamX && !usesStreamY) return;
+        if (typeof plot.refreshFn === 'function') {
+          plot.refreshFn(false);
+        }
       });
     } catch (e) { console.warn('stream parse error', e); }
   };
