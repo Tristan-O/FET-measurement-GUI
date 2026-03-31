@@ -325,7 +325,7 @@ class Keithley2602(InstrumentBase):
                 <label>Source Current Limit: <input id="{iid}-smuA-src-current-limit" type="number" step="any" data-key="smua.src_current_limit" value="{src_a_climit}"/></label>
                 <label>Measure Voltage Range: <select id="{iid}-smuA-meas-voltage-range" data-key="smua.meas_voltage_range">{volt_options_A}</select></label>
                 <label>Measure Current Range: <select id="{iid}-smuA-meas-current-range" data-key="smua.meas_current_range">{curr_options_A}</select></label>
-                <label>Level: <input id="{iid}-smuA-src-level" type="text" data-key="smua.level" value="{0}"/></label>
+                <label>Level: <input id="{iid}-smuA-src-level" type="text" data-key="smua.level" value="{str(self.sweeps[0])[1:-1]}"/></label>
             </div>
             <div class="col" id="{iid}-smu-B">
                 <h4>SMU B</h4>
@@ -338,7 +338,7 @@ class Keithley2602(InstrumentBase):
                 <label>Source Current Limit: <input id="{iid}-smuB-src-current-limit" type="number" step="any" data-key="smub.src_current_limit" value="{src_b_climit}"/></label>
                 <label>Measure Voltage Range: <select id="{iid}-smuB-meas-voltage-range" data-key="smub.meas_voltage_range">{volt_options_B}</select></label>
                 <label>Measure Current Range: <select id="{iid}-smuB-meas-current-range" data-key="smub.meas_current_range">{curr_options_B}</select></label>
-                <label>Level: <input id="{iid}-smuB-src-level" type="text" data-key="smub.level" value="{0}"/></label>
+                <label>Level: <input id="{iid}-smuB-src-level" type="text" data-key="smub.level" value="{str(self.sweeps[1])[1:-1]}"/></label>
             </div>
     </div>
     """

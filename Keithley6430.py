@@ -318,8 +318,8 @@ class Keithley6430(InstrumentBase):
 
         return f"""
     <h3>{type_name} <small>({iid})</small></h3>
-    <p>Status: <span class=\"status\">closed</span></p>
-    <p>IDN: <span class=\"idn\">-</span></p>
+    <p>Status: <span class=\"status\">{self.status}</span></p>
+    <p>IDN: <span class=\"idn\">{self.idn}</span></p>
     <div class=\"device-controls\">
         <button class=\"open\">Open</button>
         <button class=\"close\">Close</button>
@@ -331,7 +331,7 @@ class Keithley6430(InstrumentBase):
             <label>Output: <input type=\"checkbox\" data-key=\"output\"{checked} /></label>
             <label>NPLC: <select data-key=\"nplc\">{nplc_options}</select></label>
             <label>Source: <select data-key=\"source\"><option value=\"current\"{' selected' if source == 'current' else ''}>Current</option><option value=\"voltage\"{' selected' if source == 'voltage' else ''}>Voltage</option></select></label>
-            <label>Level: <input type=\"text\" data-key=\"level\" value=\"{0}\"/></label>
+            <label>Level: <input type=\"text\" data-key=\"level\" value=\"{str(self.sweep)[1:-1]}\"/></label>
         </div>
         <div class=\"col\" id=\"{iid}-sourcing-voltage\">
             <h4>Sourcing Voltage</h4>
