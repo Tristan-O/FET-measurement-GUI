@@ -150,7 +150,8 @@ class Keithley6430(InstrumentBase):
                     self.write("*CLS")
                     self.write("*RST")
                     self.write(":FORM:ELEM VOLT,CURR")
-                    self.update(self.settings)
+                    self.write(':SOUR:DEL:AUTO ON')
+                    self.update(self.settings, force=True)
                     self.status = 'open'
                     self.__class__.ADDRESSES_IN_USE.append(addr)
                     return True
@@ -176,7 +177,7 @@ class Keithley6430(InstrumentBase):
         self._enqueue_io('write', cmd)
     def query(self, q:str, output_type=str):
         return self._enqueue_io('query', q, output_type)
-    def update(self, settings: dict):
+    def update(self, settings: dict, force:bool=False):
         allowed_keys = (
             "output",
             "nplc",
@@ -190,15 +191,24 @@ class Keithley6430(InstrumentBase):
         )
         if 'level' in settings:
             try:
-                self.sweep = Sweep.from_string(settings.pop('level'))
+                self.sweep = Sweep.from_string(settings.pop('level'), float)
             except:
-                self.sweep = Sweep([0])
+                return False
 
         for k in settings.keys():
             if k not in allowed_keys:
                 raise ValueError(f"Unsupported setting key: {k}")
 
+        old_settings = self.settings.copy()
         self.settings.update(settings)
+
+        changed_keys = {k for k, v in settings.items() if old_settings.get(k) != v or force}
+        source_changed = 'source' in changed_keys
+
+        # If nothing changed, skip instrument communication entirely.
+        if not changed_keys:
+            return True
+
         if self.inst is None:
             return True
 
@@ -206,39 +216,41 @@ class Keithley6430(InstrumentBase):
         out_flag = bool(self.get("output"))
 
         try:
-            if source == "voltage":
-                self.write(":source:function voltage")
-                self.write(":source:voltage:mode fixed")
-                self.write(":sense:function \"current\"")
-            else:
-                self.write(":source:function current")
-                self.write(":source:current:mode fixed")
-                self.write(":sense:function \"voltage\"")
+            if source_changed:
+                if source == "voltage":
+                    self.write(":source:function voltage")
+                    self.write(":source:voltage:mode fixed")
+                    self.write(":sense:function \"current\"")
+                else:
+                    self.write(":source:function current")
+                    self.write(":source:current:mode fixed")
+                    self.write(":sense:function \"voltage\"")
         except Exception as e:
             print("ERROR: While trying to set source function", e)
 
         try:
-            nplc = int(float(self.get("nplc")))
-            nplc = max(1, min(10, nplc))
-            self.write(f":sense:current:NPLC {nplc}")
-            self.write(f":sense:voltage:NPLC {nplc}")
+            if 'nplc' in changed_keys:
+                nplc = int(float(self.get("nplc")))
+                nplc = max(1, min(10, nplc))
+                self.write(f":sense:current:NPLC {nplc}")
+                self.write(f":sense:voltage:NPLC {nplc}")
         except Exception as e:
             print("ERROR: While trying to set NPLC", e)
 
         try:
             meas_vrange = self._parse_eng_value(self.get("meas_voltage_range"))
             meas_irange = self._parse_eng_value(self.get("meas_current_range"))
-            if meas_vrange and source != 'voltage':
+            if (source_changed or 'meas_voltage_range' in changed_keys) and meas_vrange and source != 'voltage':
                 self.write(f":sense:voltage:range {meas_vrange:.6e}")
-            if meas_irange and source != 'current':
+            if (source_changed or 'meas_current_range' in changed_keys) and meas_irange and source != 'current':
                 self.write(f":sense:current:range {meas_irange:.6e}")
 
             # Compliance maps to opposite domain protection in SCPI.
             v_prot = self._parse_eng_value(self.get("src_voltage_limit"))
             i_prot = self._parse_eng_value(self.get("src_current_limit"))
-            if v_prot is not None and source != 'voltage':
+            if (source_changed or 'src_voltage_limit' in changed_keys) and v_prot is not None and source != 'voltage':
                 self.write(f":sense:voltage:protection {v_prot:.6e}")
-            if i_prot is not None and source != 'current':
+            if (source_changed or 'src_current_limit' in changed_keys) and i_prot is not None and source != 'current':
                 self.write(f":sense:current:protection {i_prot:.6e}")
         except Exception as e:
             print("ERROR: While trying to set compliance", e)
@@ -247,15 +259,16 @@ class Keithley6430(InstrumentBase):
             src_vrange = self._parse_eng_value(self.get("src_voltage_range"))
             src_irange = self._parse_eng_value(self.get("src_current_range"))
 
-            if src_vrange:
+            if (source_changed or 'src_voltage_range' in changed_keys) and src_vrange:
                 self.write(f":source:voltage:range {src_vrange:.6e}")
-            if src_irange:
+            if (source_changed or 'src_current_range' in changed_keys) and src_irange:
                 self.write(f":source:current:range {src_irange:.6e}")
         except Exception as e:
             print("ERROR: While trying to set ranges", e)
 
         try:
-            self.write(f":OUTP {'ON' if out_flag else 'OFF'}")
+            if 'output' in changed_keys:
+                self.write(f":OUTP {'ON' if out_flag else 'OFF'}")
         except Exception as e:
             print("ERROR: While trying to set output", e)
 
