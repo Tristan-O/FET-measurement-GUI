@@ -11,6 +11,7 @@ import math
 from datetime import datetime
 import json
 from collections import OrderedDict
+from Sweep import StopSweep
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 from Keithley2602 import Keithley2602
 from Keithley6430 import Keithley6430
@@ -69,17 +70,24 @@ class PausableThread(threading.Thread):
             t = time.time()
             res = {'ts':t, 'delta time':t-PausableThread.t0}
             for k,instr in state.instruments.items():
-                res_ = instr['obj'].next()
+                try:
+                    res_ = instr['obj'].next()
+                except StopSweep:
+                    self.stop()
+                    res = {}
+                    break
                 res_ = {f'{k}.{k2}':e2 for k2,e2 in res_.items()}
                 res.update(res_)
+
             if iter_num == 0:
                 for k in res:
                     if k not in state.stream_df.columns:
                         state.stream_df[k] = np.nan
-            state.stream_df.loc[len(state.stream_df)] = res
+            if res:
+                state.stream_df.loc[len(state.stream_df)] = res
 
-            # Persist the newest row to CSV every iteration.
-            if iter_num % 10 == 9:
+            # Persist the newest row to CSV every nth iteration.
+            if iter_num % 10 == 9 or not self._stop_event.is_set() or not self._pause_event.is_set():
                 try:
                     # Keep unwritten rows pending so transient file-write failures
                     # do not lose samples.

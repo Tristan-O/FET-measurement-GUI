@@ -1,20 +1,36 @@
 import re
 
+class StopSweep(Exception):
+    pass
+
 class Sweep(list):
     def __iter__(self):
         i = 0
         while len(self) > 0:
+            if isinstance(self[i], StopSweep):
+                raise self[i]
             yield self[i]
             i = (i+1)%len(self)
     def __getitem__(self, idx:int):
-        return super().__getitem__(idx%len(self))
+        res = super().__getitem__(idx%len(self))
+        if isinstance(res, StopSweep):
+            raise res
+        return res
     @classmethod
     def triangle(cls, amp, off, step):
         raise NotImplementedError()
         return Sweep([])
     @classmethod
     def from_string(cls, s:str, output_type=float):
-        return Sweep([output_type(x) for x in re.split(r'[,\s;]+', s) if x != ''])
+        res = []
+        for x in re.split(r'[,\s;]+', s):
+            if x == '':
+                continue
+            try:
+                res.append(output_type(x))
+            except:
+                res.append(StopSweep())
+        return Sweep(res)
 
 if __name__ == '__main__':
     s = Sweep.from_string('1,2,3,')

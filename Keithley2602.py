@@ -346,7 +346,7 @@ class Keithley2602(InstrumentBase):
         for i, smux in enumerate(('smua', 'smub')):
             if self.settings[f'{smux}.output']:
                 src = self.settings[f"{smux}.source"][0].lower()
-                val = self.sweeps[i][self._sweep_idx[i]]
+                val = self.sweeps[i][self._sweep_idx[i]] # this will raise a StopSweep exception when it finishes
                 self.write(f'{smux}.source.level{src} = {val:0.6e}')
             self._sweep_idx[i] += 1
         return self.measure()

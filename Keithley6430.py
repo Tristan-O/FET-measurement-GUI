@@ -290,7 +290,7 @@ class Keithley6430(InstrumentBase):
         # Keep source level applied from settings before each reading.
         if self.inst is not None and bool(self.get("output")):
             src = self.get("source")
-            val = self.sweep[self._sweep_idx]
+            val = self.sweep[self._sweep_idx] # this will raise a StopSweep exception when it finishes
             if src == "voltage":
                 self.write(f":source:voltage:level {val:.6e}")
             else:
