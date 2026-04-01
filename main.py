@@ -64,7 +64,14 @@ class PausableThread(threading.Thread):
             # Check for a stop condition
             time.sleep(0) # Use time.sleep() to control loop speed
             if not self._stop_event.is_set(): 
-                break
+                for k,instr in state.instruments.items():
+                    try:
+                        instr['obj'].start()
+                    except:
+                        pass
+                self.pause(True)
+                self._stop_event.set()
+                continue
 
             # --- Thread's work goes here ---
             t = time.time()
@@ -79,10 +86,9 @@ class PausableThread(threading.Thread):
                 res_ = {f'{k}.{k2}':e2 for k2,e2 in res_.items()}
                 res.update(res_)
 
-            if iter_num == 0:
-                for k in res:
-                    if k not in state.stream_df.columns:
-                        state.stream_df[k] = np.nan
+            for k in res:
+                if k not in state.stream_df.columns:
+                    state.stream_df[k] = np.nan
             if res:
                 state.stream_df.loc[len(state.stream_df)] = res
 
@@ -335,8 +341,8 @@ def api_measure_stop():
         print(e)
         return jsonify({'error': str(e)}), 500
     state.measure_thread.stop()
-    state.measure_thread.join()
-    state.measure_thread = None
+    # state.measure_thread.join()
+    # state.measure_thread = None
     return jsonify({'ok': True})
 
 
