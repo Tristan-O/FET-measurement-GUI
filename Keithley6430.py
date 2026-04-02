@@ -149,8 +149,21 @@ class Keithley6430(InstrumentBase):
                     # Baseline SCPI setup for deterministic reads.
                     self.write("*CLS")
                     self.write("*RST")
+                    self.write('SYST:TIME:RES')
+                    # self.write('FORM:DATA SRE')
+                    # self.write('SOUR:FUNC VOLT')
+                    # self.write('SOUR:VOLT 0.00')
+                    self.write('SENS:FUNC:ON "VOLT", "CURR"')
+                    self.write('SENS:FUNC:OFF "RES"')
+                    # self.write('CURR:PROT:LEV 1.0E-1')
+                    # self.write('SENS:CURR:RANG 1.0E-6')
+                    # self.write('SENS:RES:NPLC 10')
+                    self.write('AVER OFF')
+                    # self.write('DISP:DIG 4')
+                    # self.write('OUTP ON')
                     self.write(":FORM:ELEM VOLT,CURR")
-                    self.write(':SOUR:DEL:AUTO ON')
+                    # self.write(':SOUR:DEL:AUTO ON')
+                    # self.write(':SENSe:AVERage:AUTO ON')
                     self.update(self.settings, force=True)
                     self.status = 'open'
                     self.__class__.ADDRESSES_IN_USE.append(addr)
@@ -232,8 +245,8 @@ class Keithley6430(InstrumentBase):
             if 'nplc' in changed_keys:
                 nplc = int(float(self.get("nplc")))
                 nplc = max(1, min(10, nplc))
-                self.write(f":sense:current:NPLC {nplc}")
-                self.write(f":sense:voltage:NPLC {nplc}")
+                self.write(f":sense:current:NPLCycles {nplc}")
+                self.write(f":sense:voltage:NPLCycles {nplc}")
         except Exception as e:
             print("ERROR: While trying to set NPLC", e)
 
