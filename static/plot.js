@@ -69,6 +69,20 @@ function appendStreamRowToDatasets(row) {
   });
 }
 
+function replaceStreamUploadInDatasets(streamUpload) {
+  // Drop current synthetic stream dataset entries.
+  DATASETS = DATASETS.filter(d => d.upload_id !== 0);
+  if (!streamUpload || !Array.isArray(streamUpload.columns)) return;
+  streamUpload.columns.forEach(col => {
+    DATASETS.push({
+      upload_id: 0,
+      filename: streamUpload.filename || '',
+      name: col.name,
+      array: Array.isArray(col.array) ? col.array : []
+    });
+  });
+}
+
 function parseSliceIndex(raw) {
   const s = (raw || '').trim();
   if (s === '') return undefined;
@@ -182,6 +196,14 @@ function setupStream() {
   es.onmessage = (evt) => {
     try {
       const row = JSON.parse(evt.data);
+      if (row && row.clear) {
+        // Server indicates stream was cleared/reset; replace stream data and refresh plots.
+        replaceStreamUploadInDatasets(row.full);
+        Object.values(PLOTS).forEach(plot => {
+          if (typeof plot.refreshFn === 'function') plot.refreshFn(false);
+        });
+        return;
+      }
       // Keep stream dataset arrays current, then redraw affected plots.
       appendStreamRowToDatasets(row);
       Object.values(PLOTS).forEach(plot => {

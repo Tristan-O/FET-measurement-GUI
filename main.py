@@ -34,11 +34,38 @@ class State:
         # streaming control flag
         self.streaming = False
         self.measure_thread:PausableThread = None
+        # incremented whenever stream data is cleared so SSE clients can refresh
+        self.stream_clear_generation = 0
     def new_upload_id(self):
         uid = self._next_upload_id
         self._next_upload_id += 1
         return uid
 state = State()
+
+
+def build_stream_upload(df: pd.DataFrame):
+    """Build the synthetic stream upload object used by /api/full and SSE refresh packets."""
+    if df is None or len(df.columns) == 0:
+        return {
+            "id": 0,
+            "filename": "",
+            "uploaded_at": None,
+            "raw_text": None,
+            "rows_count": 0,
+            "columns": [{"name": 'index', "original_name": 'index', "array": [], "header_info": {}}]
+        }
+
+    cols = [{"name": 'index', "original_name": 'index', "array": df.index.to_list(), "header_info": {}}]
+    for c in df.columns:
+        cols.append({"name": c, "original_name": c, "array": df[c].tolist(), "header_info": {}})
+    return {
+        "id": 0,
+        "filename": "",
+        "uploaded_at": None,
+        "raw_text": None,
+        "rows_count": len(df),
+        "columns": cols
+    }
 
 class PausableThread(threading.Thread):
     t0 = None
@@ -88,7 +115,7 @@ class PausableThread(threading.Thread):
 
             for k in res:
                 if k not in state.stream_df.columns:
-                    state.stream_df[k] = np.nan
+                    state.stream_df[k] = None
             if res:
                 state.stream_df.loc[len(state.stream_df)] = res
 
@@ -281,8 +308,22 @@ def api_upload():
 def stream():
     def gen():
         last = len(state.stream_df)
+        last_clear_generation = state.stream_clear_generation
         while True:
             try:
+                # If data was cleared, notify clients to clear/refresh plots and
+                # include a full replacement stream payload.
+                if state.stream_clear_generation != last_clear_generation:
+                    payload = {
+                        'clear': True,
+                        'refresh': True,
+                        'generation': state.stream_clear_generation,
+                        'full': build_stream_upload(state.stream_df)
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    last_clear_generation = state.stream_clear_generation
+                    last = len(state.stream_df)
+
                 ln = len(state.stream_df)
                 if ln > last:
                     # yield new rows one by one as SSE
@@ -412,6 +453,7 @@ def api_measure_save():
 @app.route('/api/measure/clear', methods=['POST'])
 def api_measure_clear():
     state.stream_df = pd.DataFrame(columns=state.stream_df.columns)
+    state.stream_clear_generation += 1
     return jsonify({'ok': True})
 
 
@@ -435,20 +477,8 @@ def api_full():
     # Also include in-memory streaming data (`state.stream_df`) as a synthetic upload
     uploads = list(state.uploads)
     try:
-        if not state.stream_df.empty and len(state.stream_df.columns) > 0:
-            # create columns list from DataFrame
-            cols = [{"name": 'index', "original_name": 'index', "array": state.stream_df.index.to_list(), "header_info": {}}]
-            for c in state.stream_df.columns:
-                arr = state.stream_df[c].tolist()
-                cols.append({"name": c, "original_name": c, "array": arr, "header_info": {}})
-            stream_upload = {
-                "id": 0,
-                "filename": "",
-                "uploaded_at": None,
-                "raw_text": None,
-                "rows_count": len(state.stream_df),
-                "columns": cols
-            }
+        if len(state.stream_df.columns) > 0:
+            stream_upload = build_stream_upload(state.stream_df)
             uploads = [stream_upload] + uploads
     except Exception:
         # be defensive: if conversion fails, just return uploads
