@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+  const SAVE_NOTES_KEY = 'notesFromLastSave';
   const addBtn = document.getElementById('add-inst');
   const typeSel = document.getElementById('inst-type');
   const devicesDiv = document.getElementById('devices');
@@ -174,8 +175,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   if (saveBtn) saveBtn.addEventListener('click', async () => {
-    const notes = prompt('Enter notes for this measurement save:', '');
+    const prevNotes = localStorage.getItem(SAVE_NOTES_KEY) || '';
+    const notes = prompt('Enter notes for this measurement save:', prevNotes);
     if (notes === null) return;
+    localStorage.setItem(SAVE_NOTES_KEY, notes);
     try {
       const r = await fetch('/api/measure/save', {
         method: 'POST',
