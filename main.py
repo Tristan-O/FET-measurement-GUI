@@ -69,6 +69,7 @@ def build_stream_upload(df: pd.DataFrame):
 
 class PausableThread(threading.Thread):
     t0 = None
+    rate_limit = 100
     def __init__(self, args=(), kwargs=None):
         super().__init__()
         self._pause_event = threading.Event()
@@ -80,7 +81,7 @@ class PausableThread(threading.Thread):
     def run(self):
         iter_num = 0
         if PausableThread.t0 is None:
-            PausableThread.t0 = time.time() 
+            t1 = PausableThread.t0 = time.time() 
         os.makedirs(TEMP_DIR, exist_ok=True)
         csv_path = os.path.join(TEMP_DIR, time.strftime('%Y-%m-%d_%H%M%S')+'_raw.csv')
         last_written_row = 0
@@ -89,7 +90,7 @@ class PausableThread(threading.Thread):
             self._pause_event.wait() 
 
             # Check for a stop condition
-            time.sleep(0) # Use time.sleep() to control loop speed
+
             if not self._stop_event.is_set(): 
                 for k,instr in state.instruments.items():
                     try:
@@ -99,6 +100,12 @@ class PausableThread(threading.Thread):
                 self.pause(True)
                 self._stop_event.set()
                 continue
+
+            # Rate limiting - no less than 10ms can elapse between data points
+            try:
+                time.sleep((t1 + 1/self.rate_limit) - time.time()) # Use time.sleep() to control loop speed
+            except ValueError:
+                pass
 
             # --- Thread's work goes here ---
             t = time.time()
@@ -145,6 +152,7 @@ class PausableThread(threading.Thread):
                     print('ERROR: Unable to append newest stream row to CSV:', e)
 
             iter_num += 1
+            t1 = time.time()
     def pause(self, pause=None):
         """Pause the thread's execution."""
         if pause is None:
