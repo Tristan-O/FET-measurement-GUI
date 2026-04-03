@@ -1,6 +1,7 @@
 from InstrumentBase import PyVisaInstrument
 from Sweep import Sweep
 
+
 class Keithley2602(PyVisaInstrument):
     """Minimal wrapper for a Keithley 2602 instrument.
 
@@ -27,6 +28,7 @@ class Keithley2602(PyVisaInstrument):
         "smub.meas_voltage_range": "±100mV",
         "smub.meas_current_range": "±100nA"
     }
+
     def __init__(self):
         super().__init__()
         self.sweeps = [Sweep([0]), Sweep([0])] # A, B
@@ -145,6 +147,9 @@ class Keithley2602(PyVisaInstrument):
                 print('ERROR: While trying to set output',e)
 
         return True
+    def start(self):
+        self._sweep_idx = [0,0]
+        return True
     def measure(self):
         """Return a flat dictionary of measurements.
 
@@ -171,6 +176,14 @@ class Keithley2602(PyVisaInstrument):
                 else:
                     _get(f'printnumber({smux}.source.leveli)', f'{smux}.seti')
         return out
+    def next(self):
+        for i, smux in enumerate(('smua', 'smub')):
+            if self.settings[f'{smux}.output']:
+                src = self.settings[f"{smux}.source"][0].lower()
+                val = self.sweeps[i][self._sweep_idx[i]] # this will raise a StopSweep exception when it finishes
+                self.write(f'{smux}.source.level{src} = {val:0.6e}')
+            self._sweep_idx[i] += 1
+        return self.measure()
     def card_html(self, iid: str, type_name: str = 'keithley2602') -> str:
         """Return HTML markup for a Keithley 2602 device card, including SMU controls.
 
@@ -299,13 +312,3 @@ class Keithley2602(PyVisaInstrument):
             </div>
     </div>
     """
-    def next(self):
-        for i, smux in enumerate(('smua', 'smub')):
-            if self.settings[f'{smux}.output']:
-                src = self.settings[f"{smux}.source"][0].lower()
-                val = self.sweeps[i][self._sweep_idx[i]] # this will raise a StopSweep exception when it finishes
-                self.write(f'{smux}.source.level{src} = {val:0.6e}')
-            self._sweep_idx[i] += 1
-        return self.measure()
-    def start(self):
-        self._sweep_idx = [0,0]

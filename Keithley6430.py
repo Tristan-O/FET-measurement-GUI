@@ -177,6 +177,9 @@ class Keithley6430(PyVisaInstrument):
             print("ERROR: While trying to set output", e)
 
         return True
+    def start(self):
+        self._sweep_idx = 0
+        return True
     def measure(self):
         out = {"v": None, "i": None}
         if self.inst is None:
@@ -208,9 +211,6 @@ class Keithley6430(PyVisaInstrument):
                 out["seti"] = None
 
         return out
-    def start(self):
-        # Present for compatibility with the shared measurement thread API.
-        self._sweep_idx = 0
     def next(self):
         # Keep source level applied from settings before each reading.
         if self.inst is not None and bool(self.get("output")):
