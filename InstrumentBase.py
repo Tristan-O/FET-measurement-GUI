@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-import time
 import threading
 import queue as pyqueue
 try:
@@ -20,57 +19,42 @@ class InstrumentBase(ABC):
     - `measure()` returning a dict of measurements
     - `update(settings)` to accept generic per-device updates
     """
-
     DEFAULT_SETTINGS = {}
+
     def __init__(self):
         self.settings = self.DEFAULT_SETTINGS.copy()
-        self.inst = None
-        self.delay = 0.02
-        self.status = 'closed'
-    def get(self, key):
+    def get(self, key)->str|int|float:
         '''Get a setting from the current settings dict.'''
         return self.settings.get(key, self.DEFAULT_SETTINGS.get(key))
-    def write(self, cmd:str):
-        if self.inst is None:
-            raise RuntimeError('Instrument not open')
-        self.inst.write(cmd)
-        time.sleep(self.delay)
-    def query(self, q:str, output_type=str):
-        if self.inst is None:
-            raise RuntimeError('instrument not open')
-        res = output_type(self.inst.query(q).strip())
-        time.sleep(self.delay)
-        return res
     @abstractmethod
-    def open(self):
+    def open(self)->bool:
+        '''Open this instrument. Required by the server.'''
         raise NotImplementedError()
-    def close(self):
-        if self.inst is not None:
-            try:
-                self.inst.close()
-            except Exception:
-                pass
-            self.inst = None
-        else:
-            raise RuntimeError('Cannot close instrument. Instrument is not open!')
-        self.status = 'closed'
     @abstractmethod
-    def update(self, settings: dict):
-        """Optional: accept a generic settings dict and apply them.
-
-        This allows the server to send device-specific payloads
-        (for example {'a': {...}, 'b': {...}} for a Keithley 2602).
-        Implementations should return a dict or True/False.
-        """
+    def close(self)->bool:
+        '''Close this instrument. Required by the server. '''
+        raise NotImplementedError
+    @abstractmethod
+    def update(self, settings: dict)->bool:
+        '''Required by server. Accept a generic settings dict and apply them.'''
         raise NotImplementedError()
+    @abstractmethod
+    def start(self)->bool:
+        '''Prepare for measurement start. Required by the server.'''
+        raise NotImplementedError
+    @abstractmethod
+    def next(self)->dict:
+        '''Acquire the next measurement. Required by the server.'''
+        raise NotImplementedError
     @abstractmethod
     def card_html(self, iid: str) -> str:
-        """Return an HTML string for the device card shown on /connect.
+        '''Return an HTML string for the device card shown on /connect.
 
         Subclasses should produce a small block of HTML to be injected into
         the devices container. `iid` is the instrument id assigned by the
         server and `type_name` is an optional human-readable device type.
-        """
+        Required by the server. 
+        '''
         raise NotImplementedError()
 
 
@@ -82,14 +66,17 @@ class PyVisaInstrument(InstrumentBase):
     def __init__(self):
         super().__init__()
         self.idn = '-'
-        self.inst:None|pyvisa.Resource
+        self.inst:None|pyvisa.Resource = None
+        self.status = 'closed'
     def _start_io_worker(self):
+        '''Start the PyVisaInstrument global queue.'''
         if self._io_thread is not None and self._io_thread.is_alive():
             return
         self._io_stop.clear()
         PyVisaInstrument._io_thread = threading.Thread(target=self._io_worker, daemon=True)
         self._io_thread.start()
     def _stop_io_worker(self): 
+        '''Stop the PyVisaInstrument global queue.'''
         if self._io_thread is None:
             return
         self._io_stop.set()
@@ -98,6 +85,7 @@ class PyVisaInstrument(InstrumentBase):
         PyVisaInstrument._io_thread = None
     @staticmethod
     def _io_worker():
+        '''PyVisaInstrument global queue work method.'''
         while not PyVisaInstrument._io_stop.is_set():
             item = PyVisaInstrument._io_queue.get()
             if item is None:
@@ -123,6 +111,7 @@ class PyVisaInstrument(InstrumentBase):
                 done.set()
                 PyVisaInstrument._io_queue.task_done()
     def _enqueue_io(self, op: str, cmd: str):
+        '''Add an operation (command or query) to the global PyVisaInstrument queue.'''
         if self.inst is None:
             raise RuntimeError('Instrument not open')
         self._start_io_worker()
@@ -134,22 +123,26 @@ class PyVisaInstrument(InstrumentBase):
             raise box['error']
         return box.get('result')
     def write(self, cmd:str, check_for_errors:bool=True):
+        '''Write a command to the device.'''
         self._enqueue_io('write', cmd)
         if check_for_errors:
             self._check_for_errors(cmd)
     def query(self, q:str, output_type=str, check_for_errors:bool=True)->str|int|float:
+        '''Send a query to the device.'''
         res = output_type(self._enqueue_io('query', q))
         if check_for_errors:
             self._check_for_errors(q)
         return res
     @abstractmethod
     def _check_for_errors(self, prev_cmd:str):
+        '''Check for any errors reported by the device.'''
         raise NotImplementedError
         err = self.query(':SYST:ERR?')
         if 'no error' not in err.lower():
             print(f'{err} (from {prev_cmd})')
     @abstractmethod
     def _find(self, address:str=None, timeout:float=5, query='*IDN?', look_for:str='part of expected response of query to instrument'):
+        '''Search through the resources pyvisa knows about and identify this PyVisaInstrument.'''
         if pyvisa_resource_manager is None:
             raise ValueError(f'Cannot find {self.__class__.__name__} because pyvisa is not installed!')
         if self.inst is not None:
@@ -178,22 +171,30 @@ class PyVisaInstrument(InstrumentBase):
         return False
     @abstractmethod
     def _initialize(self):
+        '''Send commands for initializing the device state. Reset, update settings, etc.'''
         raise NotImplementedError
         self.write('*CLS')
         self.write('*RST')
         self.update(self.settings)
     def open(self, address=None, timeout=5):
+        '''Open this PyVisaInstrument.'''
         if self.inst is None:
             self._find(address=address, timeout=timeout)
         return self._initialize()
-    def close(self):
+    def close(self)->bool:
+        '''Close this PyVisaInstrument.'''
         if self.inst is None:
             self.status = 'closed'
-            return
+            return True
 
         self._stop_io_worker()
 
         addr = self.inst.resource_name
-        res = super().close()
+        try:
+            self.inst.close()
+        except Exception:
+            pass
+        self.inst = None
+        self.status = 'closed'
         PyVisaInstrument._ADDRESSES_IN_USE.discard(addr)
-        return res
+        return True
