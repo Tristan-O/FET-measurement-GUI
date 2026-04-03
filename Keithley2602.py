@@ -41,6 +41,7 @@ class Keithley2602(PyVisaInstrument):
     def _check_for_errors(self, prev_cmd:str):
         err = self.query('print(errorqueue.next())', check_for_errors=False)
         if 'queue is empty' not in err.lower():
+            self.beep()
             print(f'ERROR in Keithley2602: {err} (from {prev_cmd})')
     def _find(self, address:str=None, timeout:float=5):
         return super()._find(address=address, timeout=timeout, query='*IDN?', look_for='Keithley Instruments Inc., Model 2602')
@@ -48,7 +49,10 @@ class Keithley2602(PyVisaInstrument):
         self.write('errorqueue.clear()')
         self.write('reset()')
         self.update(self.settings)
+        self.beep()
         return True
+    def beep(self, time:float=0.25, freq:float=300):
+        self.write(f'beeper.beep({time}, {freq})', check_for_errors=False)
     def update(self, settings: dict):
         """Apply configuration using flat keys like 'smua.output' and 'smub.nplc'.
 
