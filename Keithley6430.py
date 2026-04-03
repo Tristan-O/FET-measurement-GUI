@@ -297,16 +297,24 @@ class Keithley6430(InstrumentBase):
             parts = [p.strip() for p in raw.split(",") if p.strip()]
             if len(parts) >= 1:
                 out["v"] = float(parts[0])
+                if out["v"] > 9.9e37:
+                    out["v"] = None
             if len(parts) >= 2:
                 out["i"] = float(parts[1])
+                if out["i"] > 9.9e37:
+                    out["i"] = None
         except Exception as e:
             print("ERROR: While trying to measure from 6430", e)
 
         source = self.get("source").lower()
         if source == "voltage":
-            out["setv"] = self.query('source:voltage:level?')
+            out["setv"] = self.query('source:voltage:level?', float)
+            if out["setv"] > 9.9e37:
+                out["setv"] = None
         else:
-            out["seti"] = self.query('source:current:level?')
+            out["seti"] = self.query('source:current:level?', float)
+            if out["seti"] > 9.9e37:
+                out["seti"] = None
 
         return out
     def start(self):

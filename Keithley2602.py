@@ -203,6 +203,8 @@ class Keithley2602(InstrumentBase):
         def _get(cmd, key):
             try:
                 out[key] = self.query(cmd, float)
+                if out[key] > 9.9e37:
+                    out[key] = None
             except:
                 print(f'Unable to get {key} using command {cmd}')
 
