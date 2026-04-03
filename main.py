@@ -15,6 +15,7 @@ from Sweep import StopSweep
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 from Keithley2602 import Keithley2602
 from Keithley6430 import Keithley6430
+from NotesInstrument import NotesInstrument
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 BASE_DIR = os.path.dirname(__file__)
@@ -596,6 +597,11 @@ def api_instrument_add():
         iid = f'keithley6430_{len(state.instruments)+1}'
         state.instruments[iid] = {'obj': k}
         return jsonify({'ok': True, 'id': iid, 'type': 'keithley6430'})
+    if typ == 'notes':
+        k = NotesInstrument()
+        iid = f'notes_{len(state.instruments)+1}'
+        state.instruments[iid] = {'obj': k}
+        return jsonify({'ok': True, 'id': iid, 'type': 'notes'})
     return jsonify({'error': 'unknown type'}), 400
 
 
