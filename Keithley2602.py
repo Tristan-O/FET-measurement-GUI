@@ -32,7 +32,7 @@ class Keithley2602(InstrumentBase):
         "smub.meas_voltage_range": "±100mV",
         "smub.meas_current_range": "±100nA"
     }
-    ADDRESSES_IN_USE:list[str] = []
+    _ADDRESSES_IN_USE:set[str] = {}
     def __init__(self):
         super().__init__()
         self.rm = None
@@ -47,6 +47,7 @@ class Keithley2602(InstrumentBase):
     def open(self, address=None, timeout=5):
         if pyvisa is None:
             raise RuntimeError('pyvisa not available')
+
         self.rm = pyvisa.ResourceManager()
         resources = list(self.rm.list_resources())
         try_order = []
@@ -55,14 +56,13 @@ class Keithley2602(InstrumentBase):
         try_order.extend(r for r in resources if r not in try_order if 'GPIB' in r)
         try_order.extend(r for r in resources if r not in try_order if 'GPIB' not in r) # prefer GPIB addresses
         for addr in try_order:
-            if addr in self.__class__.ADDRESSES_IN_USE:
-                continue
             try:
+                if addr in self.__class__._ADDRESSES_IN_USE and self.inst is not None:
+                    continue
                 inst = self.rm.open_resource(addr, timeout=timeout * 1000)
                 try:
                     idn = inst.query('*IDN?').strip()
                 except Exception:
-                    idn = None
                     continue
                 if idn and '2602' in idn:
                     self.inst = inst
@@ -70,7 +70,7 @@ class Keithley2602(InstrumentBase):
                     # apply stored settings to the opened instrument
                     self.update(self.settings)
                     self.status = 'open'
-                    self.__class__.ADDRESSES_IN_USE.append(addr)
+                    self.__class__._ADDRESSES_IN_USE.add(addr)
                     return True
                 else:
                     try:
@@ -85,7 +85,7 @@ class Keithley2602(InstrumentBase):
         addr = self.inst.resource_name
         res = super().close()
         cls = self.__class__
-        cls.ADDRESSES_IN_USE.pop(cls.ADDRESSES_IN_USE.index(addr))
+        cls._ADDRESSES_IN_USE.discard(addr)
         return res
     def update(self, settings: dict):
         """Apply configuration using flat keys like 'smua.output' and 'smub.nplc'.

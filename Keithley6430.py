@@ -26,7 +26,7 @@ class Keithley6430(InstrumentBase):
         "meas_voltage_range": 2,
         "meas_current_range": 1e-12
     }
-    ADDRESSES_IN_USE:list[str] = []
+    _ADDRESSES_IN_USE:set[str] = {}
 
     def __init__(self):
         super().__init__()
@@ -138,9 +138,11 @@ class Keithley6430(InstrumentBase):
 
         for addr in try_order:
             try:
+                if addr in self.__class__._ADDRESSES_IN_USE and self.inst is not None:
+                    continue
                 inst = self.rm.open_resource(addr, timeout=timeout * 1000)
-                inst.write_termination = "\n"
-                inst.read_termination = "\n"
+                # inst.write_termination = "\n"
+                # inst.read_termination = "\n"
                 idn = inst.query("*IDN?").strip()
                 if "6430" in idn:
                     self.inst = inst
@@ -166,7 +168,7 @@ class Keithley6430(InstrumentBase):
                     # self.write(':SENSe:AVERage:AUTO ON')
                     self.update(self.settings, force=True)
                     self.status = 'open'
-                    self.__class__.ADDRESSES_IN_USE.append(addr)
+                    self.__class__._ADDRESSES_IN_USE.add(addr)
                     return True
                 try:
                     inst.close()
@@ -183,8 +185,7 @@ class Keithley6430(InstrumentBase):
         self._stop_io_worker()
         res = super().close()
         cls = self.__class__
-        if addr in cls.ADDRESSES_IN_USE:
-            cls.ADDRESSES_IN_USE.pop(cls.ADDRESSES_IN_USE.index(addr))
+        cls._ADDRESSES_IN_USE.discard(addr)
         return res
     def write(self, cmd:str):
         self._enqueue_io('write', cmd)
