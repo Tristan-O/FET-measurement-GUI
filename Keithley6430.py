@@ -1,15 +1,8 @@
-from InstrumentBase import InstrumentBase
+from InstrumentBase import PyVisaInstrument
 from Sweep import Sweep
-import threading
-import queue as pyqueue
-
-try:
-    import pyvisa
-except Exception:
-    pyvisa = None
 
 
-class Keithley6430(InstrumentBase):
+class Keithley6430(PyVisaInstrument):
     """Keithley 6430 driver using SCPI commands.
 
     This class intentionally keeps the same flat-key settings shape used by the
@@ -26,74 +19,11 @@ class Keithley6430(InstrumentBase):
         "meas_voltage_range": 2,
         "meas_current_range": 1e-12
     }
-    _ADDRESSES_IN_USE:set[str] = {}
 
     def __init__(self):
         super().__init__()
-        self.rm = None
-        self.idn = '-'
         self.sweep = Sweep([0])
         self._sweep_idx = 0
-        self._io_queue = pyqueue.Queue()
-        self._io_thread = None
-        self._io_stop = threading.Event()
-    def _start_io_worker(self):
-        if self._io_thread is not None and self._io_thread.is_alive():
-            return
-        self._io_stop.clear()
-        self._io_thread = threading.Thread(target=self._io_worker, daemon=True)
-        self._io_thread.start()
-    def _stop_io_worker(self):
-        t = self._io_thread
-        if t is None:
-            return
-        self._io_stop.set()
-        self._io_queue.put(None)
-        t.join(timeout=2)
-        self._io_thread = None
-    def _io_worker(self):
-        while not self._io_stop.is_set():
-            item = self._io_queue.get()
-            if item is None:
-                self._io_queue.task_done()
-                break
-
-            op, cmd, output_type, box, done = item
-            try:
-                if self.inst is None:
-                    raise RuntimeError('Instrument not open')
-
-                if op == 'write':
-                    self.inst.write(cmd)
-                    # Optionally check instrument error queue in-band with command order.
-                    try:
-                        err = self.inst.query(':SYST:ERR?').strip()
-                        if 'no error' not in err.lower():
-                            print(f'{err} (from {cmd})')
-                    except Exception:
-                        pass
-                    box['result'] = None
-                elif op == 'query':
-                    raw = self.inst.query(cmd).strip()
-                    box['result'] = output_type(raw)
-                else:
-                    raise ValueError(f'Unknown queued op: {op}')
-            except Exception as e:
-                box['error'] = e
-            finally:
-                done.set()
-                self._io_queue.task_done()
-    def _enqueue_io(self, op: str, cmd: str, output_type=str):
-        if self.inst is None:
-            raise RuntimeError('Instrument not open')
-        self._start_io_worker()
-        box = {}
-        done = threading.Event()
-        self._io_queue.put((op, cmd, output_type, box, done))
-        done.wait()
-        if 'error' in box:
-            raise box['error']
-        return box.get('result')
     def _parse_eng_value(self, value):
         if value is None:
             return None
@@ -124,73 +54,33 @@ class Keithley6430(InstrumentBase):
             s = s[:-1]
 
         return float(s) * scale
-    def open(self, address=None, timeout=5):
-        if pyvisa is None:
-            raise RuntimeError("pyvisa not available")
-
-        self.rm = pyvisa.ResourceManager()
-        resources = list(self.rm.list_resources())
-        try_order = []
-        if address:
-            try_order.append(address)
-        try_order.extend(r for r in resources if r not in try_order if "GPIB" in r)
-        try_order.extend(r for r in resources if r not in try_order)
-
-        for addr in try_order:
-            try:
-                if addr in self.__class__._ADDRESSES_IN_USE and self.inst is not None:
-                    continue
-                inst = self.rm.open_resource(addr, timeout=timeout * 1000)
-                # inst.write_termination = "\n"
-                # inst.read_termination = "\n"
-                idn = inst.query("*IDN?").strip()
-                if "6430" in idn:
-                    self.inst = inst
-                    self.idn = idn
-                    self._start_io_worker()
-                    # Baseline SCPI setup for deterministic reads.
-                    self.write("*CLS")
-                    self.write("*RST")
-                    self.write('SYST:TIME:RES')
-                    # self.write('FORM:DATA SRE')
-                    # self.write('SOUR:FUNC VOLT')
-                    # self.write('SOUR:VOLT 0.00')
-                    self.write('SENS:FUNC:ON "VOLT", "CURR"')
-                    self.write('SENS:FUNC:OFF "RES"')
-                    # self.write('CURR:PROT:LEV 1.0E-1')
-                    # self.write('SENS:CURR:RANG 1.0E-6')
-                    # self.write('SENS:RES:NPLC 10')
-                    self.write('AVER OFF')
-                    # self.write('DISP:DIG 4')
-                    # self.write('OUTP ON')
-                    self.write(":FORM:ELEM VOLT,CURR")
-                    # self.write(':SOUR:DEL:AUTO ON')
-                    # self.write(':SENSe:AVERage:AUTO ON')
-                    self.update(self.settings, force=True)
-                    self.status = 'open'
-                    self.__class__._ADDRESSES_IN_USE.add(addr)
-                    return True
-                try:
-                    inst.close()
-                except Exception:
-                    pass
-            except Exception as e:
-                print(f"ERROR: While trying to open instrument at address {addr}, got exception", e)
-
-        return False
-    def close(self):
-        if self.inst is None:
-            return
-        addr = self.inst.resource_name
-        self._stop_io_worker()
-        res = super().close()
-        cls = self.__class__
-        cls._ADDRESSES_IN_USE.discard(addr)
-        return res
-    def write(self, cmd:str):
-        self._enqueue_io('write', cmd)
-    def query(self, q:str, output_type=str):
-        return self._enqueue_io('query', q, output_type)
+    def _check_for_errors(self, prev_cmd):
+        err = self.query(':SYST:ERR?', check_for_errors=False)
+        if 'no error' not in err.lower():
+            print(f'ERROR in Keithley6430: {err} (from {prev_cmd})')
+    def _find(self, address:str=None, timeout:float=5):
+        return super()._find(address=address, timeout=timeout, query='*IDN?', look_for='KEITHLEY INSTRUMENTS INC.,MODEL 6430')
+    def _initialize(self):
+        # Baseline SCPI setup for deterministic reads.
+        self.write("*CLS")
+        self.write("*RST")
+        self.write('SYST:TIME:RES')
+        # self.write('FORM:DATA SRE')
+        # self.write('SOUR:FUNC VOLT')
+        # self.write('SOUR:VOLT 0.00')
+        self.write('SENS:FUNC:ON "VOLT", "CURR"')
+        self.write('SENS:FUNC:OFF "RES"')
+        # self.write('CURR:PROT:LEV 1.0E-1')
+        # self.write('SENS:CURR:RANG 1.0E-6')
+        # self.write('SENS:RES:NPLC 10')
+        self.write('AVER OFF')
+        # self.write('DISP:DIG 4')
+        # self.write('OUTP ON')
+        self.write(":FORM:ELEM VOLT,CURR")
+        # self.write(':SOUR:DEL:AUTO ON')
+        # self.write(':SENSe:AVERage:AUTO ON')
+        self.update(self.settings, force=True)
+        return True
     def update(self, settings: dict, force:bool=False):
         allowed_keys = (
             "output",

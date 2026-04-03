@@ -1,12 +1,7 @@
-from InstrumentBase import InstrumentBase
+from InstrumentBase import PyVisaInstrument
 from Sweep import Sweep
-try:
-    import pyvisa
-except Exception:
-    pyvisa = None
 
-
-class Keithley2602(InstrumentBase):
+class Keithley2602(PyVisaInstrument):
     """Minimal wrapper for a Keithley 2602 instrument.
 
     Provides `open(address)`, `close()`, `update(settings)` and `measure()`.
@@ -32,11 +27,8 @@ class Keithley2602(InstrumentBase):
         "smub.meas_voltage_range": "±100mV",
         "smub.meas_current_range": "±100nA"
     }
-    _ADDRESSES_IN_USE:set[str] = {}
     def __init__(self):
         super().__init__()
-        self.rm = None
-        self.idn = '-'
         self.sweeps = [Sweep([0]), Sweep([0])] # A, B
         self._sweep_idx = [0,0]
     def get(self, smux:str, key:str|None=None):
@@ -44,49 +36,17 @@ class Keithley2602(InstrumentBase):
         if key is not None:
             smux = f'{smux}.{key}'
         return super().get(smux)
-    def open(self, address=None, timeout=5):
-        if pyvisa is None:
-            raise RuntimeError('pyvisa not available')
-
-        self.rm = pyvisa.ResourceManager()
-        resources = list(self.rm.list_resources())
-        try_order = []
-        if address:
-            try_order.append(address)
-        try_order.extend(r for r in resources if r not in try_order if 'GPIB' in r)
-        try_order.extend(r for r in resources if r not in try_order if 'GPIB' not in r) # prefer GPIB addresses
-        for addr in try_order:
-            try:
-                if addr in self.__class__._ADDRESSES_IN_USE and self.inst is not None:
-                    continue
-                inst = self.rm.open_resource(addr, timeout=timeout * 1000)
-                try:
-                    idn = inst.query('*IDN?').strip()
-                except Exception:
-                    continue
-                if idn and '2602' in idn:
-                    self.inst = inst
-                    self.idn = idn
-                    # apply stored settings to the opened instrument
-                    self.update(self.settings)
-                    self.status = 'open'
-                    self.__class__._ADDRESSES_IN_USE.add(addr)
-                    return True
-                else:
-                    try:
-                        inst.close()
-                    except Exception:
-                        pass
-            except Exception as e:
-                print(f'ERROR: While trying to open instrument at address {addr}, got exception', e)
-        self.status = 'failed to open'
-        return False
-    def close(self):
-        addr = self.inst.resource_name
-        res = super().close()
-        cls = self.__class__
-        cls._ADDRESSES_IN_USE.discard(addr)
-        return res
+    def _check_for_errors(self, prev_cmd:str):
+        err = self.query('print(errorqueue.next())', check_for_errors=False)
+        if 'queue is empty' not in err.lower():
+            print(f'ERROR in Keithley2602: {err} (from {prev_cmd})')
+    def _find(self, address:str=None, timeout:float=5):
+        return super()._find(address=address, timeout=timeout, query='*IDN?', look_for='Keithley Instruments Inc., Model 2602')
+    def _initialize(self):
+        self.write('errorqueue.clear()')
+        self.write('reset()')
+        self.update(self.settings)
+        return True
     def update(self, settings: dict):
         """Apply configuration using flat keys like 'smua.output' and 'smub.nplc'.
 
@@ -185,11 +145,6 @@ class Keithley2602(InstrumentBase):
                 print('ERROR: While trying to set output',e)
 
         return True
-    def query(self, q, output_type):
-        res = super().query(q, output_type)
-        # print( super().query('print(errorqueue.next())') )
-        # print( super().query('print(errorqueue.clear())') )
-        return res
     def measure(self):
         """Return a flat dictionary of measurements.
 
