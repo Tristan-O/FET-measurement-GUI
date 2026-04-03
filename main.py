@@ -19,8 +19,8 @@ from NotesInstrument import NotesInstrument
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 BASE_DIR = os.path.dirname(__file__)
-TEMP_DIR = os.path.join(BASE_DIR, "temp")
-DATA_DIR = os.path.join(BASE_DIR, "data")
+TEMP_DIR = os.path.join(os.path.join(BASE_DIR, "temp"), time.strftime('%Y-%m-%d'))
+DATA_DIR = os.path.join(os.path.join(BASE_DIR, "data"), time.strftime('%Y-%m-%d'))
 
 # Shared state for instrument connection and uploads
 class State:
