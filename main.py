@@ -545,44 +545,6 @@ def load_state_from_disk():
     state._next_upload_id = data.get("next_upload_id", state._next_upload_id)
 
 
-@app.route('/api/force_update', methods=['POST'])
-def api_force_update():
-    # Trigger an immediate measurement from the first instrument and append to stream_df
-    if not state.instruments:
-        return jsonify({'error': 'no instrument'}), 404
-    inst_entry = next(iter(state.instruments.values()))
-    inst_obj = inst_entry['obj'] if isinstance(inst_entry, dict) else inst_entry
-    inst_smus = inst_entry.get('smus') if isinstance(inst_entry, dict) else None
-    try:
-        meas = inst_obj.measure() or {}
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-    # Build payload for both SMUs, honoring per-instrument output flags
-    payload = {'ts': time.time(), 'meas': {}}
-    for k in ('A', 'B'):
-        cfg = (inst_smus.get(k) if inst_smus and k in inst_smus else state.smus.get(k, {}))
-        if not cfg.get('output'):
-            payload['meas'][f'{k}_v'] = None
-            payload['meas'][f'{k}_i'] = None
-            continue
-        payload['meas'][f'{k}_v'] = meas.get(f'{k}_v')
-        payload['meas'][f'{k}_i'] = meas.get(f'{k}_i')
-
-    # Append to DataFrame, creating missing columns if needed
-    try:
-        cols = ['ts', 'A_v', 'A_i', 'B_v', 'B_i']
-        for c in cols:
-            if c not in state.stream_df.columns:
-                state.stream_df[c] = pd.NA
-        row = { 'ts': payload['ts'], 'A_v': payload['meas'].get('A_v'), 'A_i': payload['meas'].get('A_i'), 'B_v': payload['meas'].get('B_v'), 'B_i': payload['meas'].get('B_i') }
-        state.stream_df = pd.concat([state.stream_df, pd.DataFrame([row])], ignore_index=True)
-    except Exception:
-        pass
-
-    return jsonify({'ok': True, 'meas': payload})
-
-
 @app.route('/api/instrument/add', methods=['POST'])
 def api_instrument_add(): 
     j = request.get_json() or {}
