@@ -64,3 +64,45 @@ th {
 .col label { display:flex; justify-content:space-between; gap:8px; margin:6px 0 }
 .row { display:flex; align-items:center; gap:8px }
 .col select, .col input[type=number] { min-width:120px }
+
+/* Collapsible instrument cards */
+.device-card-shell {
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+.device-card-shell > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 12px 14px;
+    background: linear-gradient(180deg, #fafafa, #f4f4f4);
+}
+.device-card-shell > summary::-webkit-details-marker {
+    display: none;
+}
+.device-card-summary h3 {
+    margin: 0;
+}
+.device-card-summary-meta {
+    margin: 4px 0 0;
+    color: #666;
+    font-size: 0.92rem;
+}
+.device-card-summary-hint {
+    color: #666;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    padding-top: 2px;
+}
+.device-card-body {
+    padding: 0 14px 14px;
+}
+.device-card-body .device-controls {
+    margin-top: 12px;
+}

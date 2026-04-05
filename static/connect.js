@@ -30,17 +30,31 @@ document.addEventListener('DOMContentLoaded', () => {
     card.dataset.iid = id;
     devicesDiv.appendChild(card);
 
+    const wrapCardHtml = (innerHtml) => `
+      <details class="device-card-shell" open>
+        <summary class="device-card-summary">
+          <div>
+            <h3>${type} <small>(${id})</small></h3>
+          </div>
+          <span class="device-card-summary-hint">Click to collapse</span>
+        </summary>
+        <div class="device-card-body">
+          ${innerHtml}
+        </div>
+      </details>
+    `;
+
     // Fetch the HTML for the card from the backend. If unavailable, show minimal placeholder.
     fetch(`/api/instrument/${id}/card`).then(async r => {
       try {
         const j = await r.json();
-        if (j && j.html) card.innerHTML = j.html;
-        else card.innerHTML = `<h3>${type} <small>(${id})</small></h3><p>No card HTML from server.</p>`;
+        if (j && j.html) card.innerHTML = wrapCardHtml(j.html);
+        else card.innerHTML = wrapCardHtml(`<p>No card HTML from server.</p>`);
       } catch (e) {
-        card.innerHTML = `<h3>${type} <small>(${id})</small></h3><p>No card HTML from server.</p>`;
+        card.innerHTML = wrapCardHtml(`<p>No card HTML from server.</p>`);
       }
     }).catch(() => {
-      card.innerHTML = `<h3>${type} <small>(${id})</small></h3><p>No card HTML from server.</p>`;
+      card.innerHTML = wrapCardHtml(`<p>No card HTML from server.</p>`);
     }).finally(() => {
       setupCard(card);
     });
