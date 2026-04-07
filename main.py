@@ -91,7 +91,6 @@ class PausableThread(threading.Thread):
             self._pause_event.wait() 
 
             # Check for a stop condition
-
             if not self._stop_event.is_set(): 
                 for k,instr in state.instruments.items():
                     try:
@@ -103,14 +102,14 @@ class PausableThread(threading.Thread):
                 continue
 
             # Rate limiting - no less than 10ms can elapse between data points
-            try:
-                time.sleep((t1 + 1/self.rate_limit) - time.time()) # Use time.sleep() to control loop speed
-            except ValueError:
-                pass
+            time.sleep(max( 0, 
+                            (t1 + 1/self.rate_limit) - time.time()
+                          )) # Use time.sleep() to control loop speed
 
             # --- Thread's work goes here ---
             t = time.time()
             res = {'ts':t, 'delta time':t-PausableThread.t0}
+
             for k,instr in state.instruments.items():
                 try:
                     res_ = instr['obj'].next()
@@ -157,7 +156,7 @@ class PausableThread(threading.Thread):
     def pause(self, pause=None):
         """Pause the thread's execution."""
         if pause is None:
-            pause = self._pause_event.is_set()
+            pause = not self.is_paused
         
         if pause:
             self._pause_event.clear() # Clear the flag, causing wait() to block
@@ -169,6 +168,9 @@ class PausableThread(threading.Thread):
     def stop(self):
         self._stop_event.clear()
         self._pause_event.set()
+    @property
+    def is_paused(self):
+        return not self._pause_event.is_set()
 
 
 @app.route("/")
@@ -363,11 +365,11 @@ def stream():
 
 @app.route('/api/measure/start', methods=['POST'])
 def api_measure_start():
-    if state.measure_thread is not None:
-        e = 'ERROR: Measurement thread cannot start, as it was never stopped!'
-        print(e)
-        return jsonify({'error': str(e)}), 500
-    state.measure_thread = PausableThread()
+    if state.measure_thread is None:
+        state.measure_thread = PausableThread()
+    elif not state.measure_thread.is_alive():
+        state.measure_thread = PausableThread()
+
     for _,instr in state.instruments.items():
         instr['obj'].start()
     state.measure_thread.start()
@@ -554,17 +556,18 @@ def api_instrument_add():
         iid = f'keithley2602_{len(state.instruments)+1}'
         state.instruments[iid] = {'obj': k}
         return jsonify({'ok': True, 'id': iid, 'type': 'keithley2602'})
-    if typ == 'keithley6430' or typ == '6430':
+    elif typ == 'keithley6430' or typ == '6430':
         k = Keithley6430()
         iid = f'keithley6430_{len(state.instruments)+1}'
         state.instruments[iid] = {'obj': k}
         return jsonify({'ok': True, 'id': iid, 'type': 'keithley6430'})
-    if typ == 'notes':
+    elif typ == 'notes':
         k = NotesInstrument()
         iid = f'notes_{len(state.instruments)+1}'
         state.instruments[iid] = {'obj': k}
         return jsonify({'ok': True, 'id': iid, 'type': 'notes'})
-    return jsonify({'error': 'unknown type'}), 400
+    else:
+        return jsonify({'error': 'unknown type'}), 404
 
 
 @app.route('/api/instruments', methods=['GET'])
