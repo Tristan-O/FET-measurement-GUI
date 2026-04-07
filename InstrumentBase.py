@@ -46,6 +46,9 @@ class InstrumentBase(ABC):
     def next(self)->dict:
         '''Acquire the next measurement. Required by the server.'''
         raise NotImplementedError
+    @property
+    def is_stopped(self)->bool:
+        return True
     @abstractmethod
     def card_html(self, iid: str) -> str:
         '''Return an HTML string for the device card shown on /connect.

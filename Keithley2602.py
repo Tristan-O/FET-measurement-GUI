@@ -153,6 +153,8 @@ class Keithley2602(PyVisaInstrument):
         return True
     def start(self):
         self._sweep_idx = [0,0]
+        self.sweeps[0].is_stopped = False
+        self.sweeps[1].is_stopped = False
         return True
     def measure(self):
         """Return a flat dictionary of measurements.
@@ -184,10 +186,13 @@ class Keithley2602(PyVisaInstrument):
         for i, smux in enumerate(('smua', 'smub')):
             if self.settings[f'{smux}.output']:
                 src = self.settings[f"{smux}.source"][0].lower()
-                val = self.sweeps[i][self._sweep_idx[i]] # this will raise a StopSweep exception when it finishes
+                val = self.sweeps[i][self._sweep_idx[i]]
                 self.write(f'{smux}.source.level{src} = {val:0.6e}')
             self._sweep_idx[i] += 1
         return self.measure()
+    @property
+    def is_stopped(self):
+        return self.sweeps[0].is_stopped and self.sweeps[1].is_stopped
     def card_html(self, iid: str, type_name: str = 'keithley2602') -> str:
         """Return HTML markup for a Keithley 2602 device card, including SMU controls.
 

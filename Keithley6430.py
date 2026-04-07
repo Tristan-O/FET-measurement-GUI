@@ -179,6 +179,7 @@ class Keithley6430(PyVisaInstrument):
         return True
     def start(self):
         self._sweep_idx = 0
+        self.sweep.is_stopped = False
         return True
     def measure(self):
         out = {"v": None, "i": None}
@@ -223,6 +224,9 @@ class Keithley6430(PyVisaInstrument):
             self._sweep_idx += 1
 
         return self.measure()
+    @property
+    def is_stopped(self):
+        return self.sweep.is_stopped
     def card_html(self, iid: str, type_name: str = "keithley6430") -> str:
         checked = " checked" if bool(self.get("output")) else ""
         source = str(self.get("source") or "current")

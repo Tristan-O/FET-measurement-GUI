@@ -4,17 +4,23 @@ class StopSweep(Exception):
     pass
 
 class Sweep(list):
+    DEFAULT_VALUE = 0
+    def __init__(self, *args, **kwargs):
+        self.is_stopped = False
+        super().__init__(*args, **kwargs)
     def __iter__(self):
         i = 0
-        while len(self) > 0:
-            if isinstance(self[i], StopSweep):
-                raise self[i]
+        self.is_stopped = False
+        while len(self) > 0 and not self.is_stopped:
             yield self[i]
             i = (i+1)%len(self)
     def __getitem__(self, idx:int):
         res = super().__getitem__(idx%len(self))
         if isinstance(res, StopSweep):
-            raise res
+            self.is_stopped = True
+            res = self.DEFAULT_VALUE
+        else:
+            self.is_stopped = False
         return res
     @classmethod
     def triangle(cls, amp, off, step):

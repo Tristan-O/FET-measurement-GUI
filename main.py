@@ -111,20 +111,23 @@ class PausableThread(threading.Thread):
             res = {'ts':t, 'delta time':t-PausableThread.t0}
 
             for k,instr in state.instruments.items():
-                try:
-                    res_ = instr['obj'].next()
-                except StopSweep:
-                    self.stop()
-                    res = {}
-                    break
+                res_ = instr['obj'].next()
                 res_ = {f'{k}.{k2}':e2 for k2,e2 in res_.items()}
                 res.update(res_)
 
+                if instr['obj'].is_stopped: # triggered by the entered Sweep value
+                    self.stop()
+
+            # Prepare dataframe for incoming data. Add new columns if necessary.
             for k in res:
                 if k not in state.stream_df.columns:
                     state.stream_df[k] = None
-            if res:
-                state.stream_df.loc[len(state.stream_df)] = res
+            # Prepare incoming data for dataframe. If columns in dataframe are not present in data, set those entries to None.
+            for k in state.stream_df.columns:
+                if k not in res:
+                    res[k] = None
+
+            state.stream_df.loc[len(state.stream_df)] = res
 
             # Persist the newest row to CSV every nth iteration.
             if iter_num % 10 == 9 or not self._stop_event.is_set() or not self._pause_event.is_set():
