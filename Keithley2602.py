@@ -192,7 +192,7 @@ class Keithley2602(PyVisaInstrument):
         return self.measure()
     @property
     def is_stopped(self):
-        return self.sweeps[0].is_stopped and self.sweeps[1].is_stopped
+        return self.sweeps[0].is_stopped or self.sweeps[1].is_stopped
     def card_html(self, iid: str, type_name: str = 'keithley2602') -> str:
         """Return HTML markup for a Keithley 2602 device card, including SMU controls.
 

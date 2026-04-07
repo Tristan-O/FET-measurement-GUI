@@ -48,7 +48,7 @@ class InstrumentBase(ABC):
         raise NotImplementedError
     @property
     def is_stopped(self)->bool:
-        return True
+        return False
     @abstractmethod
     def card_html(self, iid: str) -> str:
         '''Return an HTML string for the device card shown on /connect.
