@@ -151,8 +151,15 @@ function addPlot() {
     });
     const xlog = container.querySelector('.xlog').checked;
     const ylog = container.querySelector('.ylog').checked;
-    const layout = { margin:{t:30}, xaxis:{type: xlog ? 'log' : 'linear'}, yaxis:{type: ylog ? 'log' : 'linear'} };
-    Plotly.newPlot(id, traces, layout);
+    // Keep user zoom/pan while data streams; reset view only when plot config changes.
+    const viewRevision = `${xKey}|${yKeys.join(',')}|${sliceStart ?? ''}|${sliceEnd ?? ''}|${xlog ? 'log' : 'linear'}|${ylog ? 'log' : 'linear'}`;
+    const layout = {
+      margin:{t:30},
+      xaxis:{type: xlog ? 'log' : 'linear'},
+      yaxis:{type: ylog ? 'log' : 'linear'},
+      uirevision: viewRevision
+    };
+    Plotly.react(id, traces, layout);
 
     // Register plot for live updates: map datasetKey -> trace index
     const traceMap = {};
