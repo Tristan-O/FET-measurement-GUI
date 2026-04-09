@@ -5,6 +5,7 @@ import io
 import csv
 import math
 import time
+import urllib.request
 import pandas as pd
 import numpy as np
 import math
@@ -21,6 +22,7 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 BASE_DIR = os.path.dirname(__file__)
 TEMP_DIR = os.path.join(os.path.join(BASE_DIR, "temp"), time.strftime('%Y-%m-%d'))
 DATA_DIR = os.path.join(os.path.join(BASE_DIR, "data"), time.strftime('%Y-%m-%d'))
+PLOTLY_CDN_URL = "https://cdn.plot.ly/plotly-3.5.0.min.js"
 
 # Shared state for instrument connection and uploads
 class State:
@@ -550,6 +552,33 @@ def load_state_from_disk():
     state._next_upload_id = data.get("next_upload_id", state._next_upload_id)
 
 
+def ensure_local_plotly_bundle():
+    """Attempt to cache Plotly locally so /plot can serve it from /static."""
+    static_dir = os.path.join(BASE_DIR, "static")
+    os.makedirs(static_dir, exist_ok=True)
+    out_path = os.path.join(static_dir, 'plotly-latest-cached.js')
+    tmp_path = out_path + ".tmp"
+    try:
+        with urllib.request.urlopen(PLOTLY_CDN_URL, timeout=15) as resp:
+            body = resp.read()
+        if not body:
+            raise ValueError("Downloaded Plotly bundle is empty")
+        with open(tmp_path, "wb") as f:
+            f.write(body)
+        os.replace(tmp_path, out_path)
+        print(f"INFO: Cached Plotly bundle to {out_path}")
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+        if os.path.exists(out_path):
+            print(f"WARNING: Failed to refresh Plotly bundle; using existing local file. ({e})")
+        else:
+            print(f"WARNING: Failed to download Plotly bundle and no local fallback exists. ({e})")
+
+
 @app.route('/api/instrument/add', methods=['POST'])
 def api_instrument_add(): 
     j = request.get_json() or {}
@@ -668,5 +697,6 @@ def api_instrument_update(iid):
 
 
 if __name__ == "__main__":
+    ensure_local_plotly_bundle()
     load_state_from_disk()
     app.run(host="0.0.0.0", port=5000, debug=True)

@@ -11,3 +11,6 @@
 *.tiff
 
 *.pyc
+
+# I don't want to commit the cached plotly script
+*plotly*
