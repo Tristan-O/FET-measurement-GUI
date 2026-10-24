@@ -468,7 +468,7 @@ def api_measure_save():
 
 @app.route('/api/measure/clear', methods=['POST'])
 def api_measure_clear():
-    state.stream_df = pd.DataFrame(columns=state.stream_df.columns)
+    state.stream_df = pd.DataFrame()
     state.stream_clear_generation += 1
     return jsonify({'ok': True})
 
